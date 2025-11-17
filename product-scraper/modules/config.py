@@ -29,6 +29,7 @@ class Config:
         # OpenAI Configuration
         self.openai_api_key = os.getenv('OPENAI_API_KEY', '')
         self.openai_model = os.getenv('OPENAI_MODEL', 'gpt-4')
+        self.openai_base_url = os.getenv('OPENAI_BASE_URL', '')
         
         # Image Processing Configuration
         self.image_max_width = int(os.getenv('IMAGE_MAX_WIDTH', 1024))

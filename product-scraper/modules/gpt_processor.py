@@ -20,7 +20,13 @@ class GPTProcessor:
         self.logger = logger
         
         if config.openai_api_key:
-            self.client = OpenAI(api_key=config.openai_api_key)
+            # Support for custom base URL (like Ollama)
+            base_url = getattr(config, 'openai_base_url', None)
+            if base_url:
+                self.client = OpenAI(api_key=config.openai_api_key, base_url=base_url)
+                self.logger.info(f"Using custom OpenAI base URL: {base_url}")
+            else:
+                self.client = OpenAI(api_key=config.openai_api_key)
         else:
             self.client = None
             self.logger.warning("OpenAI API key not provided. GPT features will be disabled.")
