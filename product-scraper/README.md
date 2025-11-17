@@ -35,6 +35,14 @@ A comprehensive Python application for scraping product data from e-commerce web
   - Brand registry with history tracking
   - See [Brand Management Guide](BRAND_MANAGEMENT.md)
 
+- **Media Pack Discovery** ✨ NEW
+  - Discover official media packs from brand websites
+  - Automatic detection of press kits and resources
+  - File type recognition (archives, documents, images)
+  - Access restriction handling
+  - Alternative domain discovery
+  - See [Media Pack Discovery Guide](MEDIA_PACK_DISCOVERY.md)
+
 ### Advanced Features
 - **Error Handling**: Robust error handling with detailed logging
 - **Rate Limiting**: Configurable delays between requests
@@ -128,6 +136,25 @@ python brand_manager.py add "SMOK" "smoktech.com" --priority high
 ```
 
 See [Brand Management Guide](BRAND_MANAGEMENT.md) for complete documentation.
+
+### Media Pack Discovery
+
+Discover official media packs from brand websites:
+```bash
+# Discover media packs for all brands
+python brand_manager.py discover-media --save
+
+# Discover for specific brand
+python brand_manager.py discover-media --brand "SMOK" --save
+
+# View discovered media packs
+python brand_manager.py media-packs
+
+# Filter by file type
+python brand_manager.py media-packs --type archive
+```
+
+See [Media Pack Discovery Guide](MEDIA_PACK_DISCOVERY.md) for complete documentation.
 
 ### Advanced Usage
 
