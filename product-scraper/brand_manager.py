@@ -11,7 +11,9 @@ from modules import (
     Config, setup_logger, 
     BrandManager, BrandValidator, 
     Brand, BrandStatus,
-    MediaPackDiscovery
+    MediaPackDiscovery,
+    MediaPackDownloader,
+    MediaPackExtractor
 )
 
 
@@ -51,6 +53,15 @@ Examples:
   
   # Show discovered media packs
   python brand_manager.py media-packs
+  
+  # Download media packs for all brands
+  python brand_manager.py download
+  
+  # Download for specific brand
+  python brand_manager.py download --brand "SMOK"
+  
+  # Extract downloaded media packs
+  python brand_manager.py extract --brand "SMOK"
         """
     )
     
@@ -174,6 +185,43 @@ Examples:
         '--type', '-t',
         choices=['archive', 'document', 'image', 'vector'],
         help='Filter by file type category'
+    )
+    
+    # Download media packs command
+    download_parser = subparsers.add_parser('download', help='Download media packs')
+    download_parser.add_argument(
+        '--brand', '-b',
+        type=str,
+        help='Download for specific brand only'
+    )
+    download_parser.add_argument(
+        '--url', '-u',
+        type=str,
+        help='Download specific URL'
+    )
+    download_parser.add_argument(
+        '--resume',
+        action='store_true',
+        default=True,
+        help='Enable resumable downloads (default: true)'
+    )
+    
+    # Extract media packs command
+    extract_parser = subparsers.add_parser('extract', help='Extract downloaded media packs')
+    extract_parser.add_argument(
+        '--brand', '-b',
+        type=str,
+        help='Extract for specific brand only'
+    )
+    extract_parser.add_argument(
+        '--file', '-f',
+        type=str,
+        help='Extract specific file'
+    )
+    extract_parser.add_argument(
+        '--no-organize',
+        action='store_true',
+        help='Skip file organization'
     )
     
     args = parser.parse_args()
@@ -548,6 +596,197 @@ def cmd_media_packs(args, brand_manager, media_discovery, logger):
     return 0
 
 
+def cmd_download(args, brand_manager, downloader, logger):
+    """Download media packs"""
+    from modules import MediaPackInfo
+    
+    # Handle specific URL download
+    if args.url:
+        if not args.brand:
+            logger.error("--brand is required when downloading specific URL")
+            return 1
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Downloading: {args.url}")
+        logger.info('='*60)
+        
+        # Progress callback
+        def progress_callback(progress):
+            percent = progress.get_progress_percent()
+            speed = progress.format_size(progress.get_speed())
+            downloaded = progress.format_size(progress.downloaded)
+            total = progress.format_size(progress.total_size)
+            eta = progress.format_time(progress.get_eta())
+            
+            logger.info(
+                f"  {percent:.1f}% - {downloaded}/{total} - {speed}/s - ETA: {eta}"
+            )
+        
+        result = downloader.download_media_pack(
+            args.url,
+            args.brand,
+            resume=args.resume,
+            progress_callback=progress_callback
+        )
+        
+        if result['success']:
+            logger.info(f"\n✓ Download complete: {result['filepath']}")
+            if result.get('checksum'):
+                logger.info(f"  Checksum: {result['checksum']}")
+            return 0
+        else:
+            logger.error(f"\n✗ Download failed: {result.get('error')}")
+            return 1
+    
+    # Download from discovered media packs
+    if args.brand:
+        brand = brand_manager.get_brand(args.brand)
+        if not brand:
+            logger.error(f"Brand not found: {args.brand}")
+            return 1
+        brands = [brand]
+    else:
+        brands = brand_manager.get_all_brands()
+    
+    # Filter brands with media packs
+    brands_with_media = [b for b in brands if b.media_packs and len(b.media_packs) > 0]
+    
+    if not brands_with_media:
+        logger.info("No media packs to download. Use 'discover-media' command first.")
+        return 0
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Downloading Media Packs ({len(brands_with_media)} brand(s))")
+    logger.info('='*60)
+    
+    total_downloaded = 0
+    total_failed = 0
+    
+    for brand in brands_with_media:
+        logger.info(f"\n{brand.name}")
+        
+        # Get media packs
+        packs = [MediaPackInfo.from_dict(p) for p in brand.media_packs]
+        
+        # Download each pack
+        for pack in packs:
+            if not pack.accessible:
+                logger.info(f"  Skipping (not accessible): {pack.url}")
+                continue
+            
+            logger.info(f"  Downloading: {pack.url}")
+            
+            result = downloader.download_media_pack(
+                pack.url,
+                brand.name,
+                resume=args.resume
+            )
+            
+            if result['success']:
+                logger.info(f"  ✓ Downloaded: {result['filepath']}")
+                total_downloaded += 1
+            else:
+                logger.error(f"  ✗ Failed: {result.get('error')}")
+                total_failed += 1
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Download Summary: {total_downloaded} successful, {total_failed} failed")
+    logger.info('='*60)
+    
+    return 0 if total_failed == 0 else 1
+
+
+def cmd_extract(args, brand_manager, extractor, logger):
+    """Extract downloaded media packs"""
+    
+    # Handle specific file extraction
+    if args.file:
+        if not args.brand:
+            logger.error("--brand is required when extracting specific file")
+            return 1
+        
+        file_path = Path(args.file)
+        if not file_path.exists():
+            logger.error(f"File not found: {file_path}")
+            return 1
+        
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Extracting: {file_path}")
+        logger.info('='*60)
+        
+        result = extractor.extract_media_pack(
+            file_path,
+            args.brand,
+            organize=not args.no_organize
+        )
+        
+        if result['success']:
+            logger.info(f"\n✓ Extraction complete")
+            logger.info(f"  Directory: {result['extraction_dir']}")
+            logger.info(f"  Total files: {result['total_files']}")
+            logger.info(f"  Categories: {result['categories']}")
+            logger.info(f"  Metadata: {result['metadata_path']}")
+            return 0
+        else:
+            logger.error(f"\n✗ Extraction failed: {result.get('error')}")
+            return 1
+    
+    # Extract from downloads directory
+    download_dir = Path("downloads")
+    if not download_dir.exists():
+        logger.info("No downloads directory found. Use 'download' command first.")
+        return 0
+    
+    if args.brand:
+        brand_dirs = [download_dir / args.brand]
+    else:
+        brand_dirs = [d for d in download_dir.iterdir() if d.is_dir()]
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Extracting Media Packs")
+    logger.info('='*60)
+    
+    total_extracted = 0
+    total_failed = 0
+    
+    for brand_dir in brand_dirs:
+        if not brand_dir.exists():
+            continue
+        
+        brand_name = brand_dir.name
+        media_dir = brand_dir / "media-packs"
+        
+        if not media_dir.exists():
+            continue
+        
+        logger.info(f"\n{brand_name}")
+        
+        # Find archive files
+        archives = list(media_dir.glob("*.zip")) + list(media_dir.glob("*.tar.gz"))
+        
+        for archive in archives:
+            logger.info(f"  Extracting: {archive.name}")
+            
+            result = extractor.extract_media_pack(
+                archive,
+                brand_name,
+                organize=not args.no_organize
+            )
+            
+            if result['success']:
+                logger.info(f"  ✓ Extracted {result['total_files']} files")
+                total_extracted += 1
+            else:
+                logger.error(f"  ✗ Failed: {result.get('error')}")
+                total_failed += 1
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Extraction Summary: {total_extracted} successful, {total_failed} failed")
+    logger.info('='*60)
+    
+    return 0 if total_failed == 0 else 1
+
+
 def main():
     """Main entry point"""
     args = parse_arguments()
@@ -579,6 +818,14 @@ def main():
     # Initialize media pack discovery
     media_discovery = MediaPackDiscovery(config, logger)
     
+    # Initialize media pack downloader
+    download_dir = Path("downloads")
+    downloader = MediaPackDownloader(download_dir, config, logger)
+    
+    # Initialize media pack extractor
+    extraction_dir = Path("extracted")
+    extractor = MediaPackExtractor(extraction_dir, config, logger)
+    
     # Execute command
     try:
         if args.command == 'load':
@@ -599,6 +846,12 @@ def main():
             return cmd_history(args, brand_manager, logger)
         elif args.command == 'discover-media':
             return cmd_discover_media(args, brand_manager, media_discovery, logger)
+        elif args.command == 'media-packs':
+            return cmd_media_packs(args, brand_manager, media_discovery, logger)
+        elif args.command == 'download':
+            return cmd_download(args, brand_manager, downloader, logger)
+        elif args.command == 'extract':
+            return cmd_extract(args, brand_manager, extractor, logger)
         elif args.command == 'media-packs':
             return cmd_media_packs(args, brand_manager, media_discovery, logger)
         else:

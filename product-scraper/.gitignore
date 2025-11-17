@@ -35,6 +35,7 @@ brands_registry.json
 output/
 images/
 logs/
+extracted/
 
 # IDE
 .vscode/

@@ -11,6 +11,8 @@ from .product_scraper import ProductScraper
 from .brand_manager import Brand, BrandManager, Priority, BrandStatus
 from .brand_validator import BrandValidator
 from .media_pack_discovery import MediaPackDiscovery, MediaPackInfo
+from .media_pack_downloader import MediaPackDownloader, DownloadProgress
+from .media_pack_extractor import MediaPackExtractor
 
 __all__ = [
     'Config',
@@ -26,5 +28,8 @@ __all__ = [
     'Priority',
     'BrandStatus',
     'MediaPackDiscovery',
-    'MediaPackInfo'
+    'MediaPackInfo',
+    'MediaPackDownloader',
+    'DownloadProgress',
+    'MediaPackExtractor'
 ]
