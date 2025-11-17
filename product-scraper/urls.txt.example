@@ -1,0 +1,8 @@
+# Example URLs file
+# Add one product URL per line
+# Lines starting with # are treated as comments
+
+# Example product URLs (replace with actual URLs):
+# https://www.example.com/products/product-1
+# https://www.example.com/products/product-2
+# https://www.example.com/products/product-3
