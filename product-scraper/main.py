@@ -40,13 +40,12 @@ Examples:
     )
     
     # URL input options
-    input_group = parser.add_mutually_exclusive_group(required=True)
-    input_group.add_argument(
+    parser.add_argument(
         'urls',
         nargs='*',
         help='Product page URLs to scrape'
     )
-    input_group.add_argument(
+    parser.add_argument(
         '--file', '-f',
         type=str,
         help='File containing product URLs (one per line)'
@@ -98,11 +97,12 @@ Examples:
     
     args = parser.parse_args()
     
-    # Handle URL input
-    if args.file:
-        args.urls = []
-    elif not args.urls:
-        parser.error('Either provide URLs or use --file option')
+    # Validate URL input
+    if not args.urls and not args.file:
+        parser.error('Either provide URLs as arguments or use --file option')
+    
+    if args.urls and args.file:
+        parser.error('Cannot use both URL arguments and --file option. Choose one.')
     
     return args
 
