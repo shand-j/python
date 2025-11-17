@@ -10,7 +10,8 @@ from pathlib import Path
 from modules import (
     Config, setup_logger, 
     BrandManager, BrandValidator, 
-    Brand, BrandStatus
+    Brand, BrandStatus,
+    MediaPackDiscovery
 )
 
 
@@ -41,6 +42,15 @@ Examples:
   
   # Show registry history
   python brand_manager.py history
+  
+  # Discover media packs for all brands
+  python brand_manager.py discover-media --save
+  
+  # Discover media packs for specific brand
+  python brand_manager.py discover-media --brand "SMOK" --save
+  
+  # Show discovered media packs
+  python brand_manager.py media-packs
         """
     )
     
@@ -139,6 +149,32 @@ Examples:
     
     # History command
     subparsers.add_parser('history', help='Show registry history')
+    
+    # Discover media packs command
+    discover_parser = subparsers.add_parser('discover-media', help='Discover media packs for brands')
+    discover_parser.add_argument(
+        '--brand', '-b',
+        type=str,
+        help='Discover for specific brand only'
+    )
+    discover_parser.add_argument(
+        '--save',
+        action='store_true',
+        help='Save discovered media packs to registry'
+    )
+    
+    # Show media packs command
+    media_parser = subparsers.add_parser('media-packs', help='Show discovered media packs')
+    media_parser.add_argument(
+        '--brand', '-b',
+        type=str,
+        help='Show media packs for specific brand'
+    )
+    media_parser.add_argument(
+        '--type', '-t',
+        choices=['archive', 'document', 'image', 'vector'],
+        help='Filter by file type category'
+    )
     
     args = parser.parse_args()
     
@@ -396,6 +432,122 @@ def cmd_history(args, brand_manager, logger):
     return 0
 
 
+def cmd_discover_media(args, brand_manager, media_discovery, logger):
+    """Discover media packs for brands"""
+    from modules import MediaPackInfo
+    from datetime import datetime
+    
+    if args.brand:
+        # Discover for specific brand
+        brand = brand_manager.get_brand(args.brand)
+        if not brand:
+            logger.error(f"Brand not found: {args.brand}")
+            return 1
+        brands = [brand]
+    else:
+        # Discover for all brands
+        brands = brand_manager.get_all_brands()
+    
+    if not brands:
+        logger.warning("No brands to process")
+        return 0
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Discovering Media Packs ({len(brands)} brand(s))")
+    logger.info('='*60)
+    
+    for brand in brands:
+        logger.info(f"\n{brand.name} ({brand.website})")
+        
+        # Discover media packs
+        media_packs = media_discovery.discover_media_packs(brand.name, brand.website)
+        
+        if media_packs:
+            # Prioritize archives first
+            prioritized = media_discovery.get_prioritized_packs(media_packs)
+            
+            logger.info(f"  Found {len(media_packs)} media pack(s):")
+            for i, pack in enumerate(prioritized, 1):
+                size_str = media_discovery.format_file_size(pack.file_size)
+                status = "✓" if pack.accessible else "✗"
+                restriction = f" [{pack.restriction_type}]" if pack.restricted else ""
+                
+                logger.info(f"    {i}. {status} {pack.content_type} ({pack.file_type})")
+                logger.info(f"       {pack.url}")
+                logger.info(f"       Size: {size_str}{restriction}")
+            
+            # Save to brand if requested
+            if args.save:
+                brand.media_packs = [pack.to_dict() for pack in media_packs]
+                brand.media_pack_count = len(media_packs)
+                brand.last_media_scan = datetime.now().isoformat()
+                brand_manager.update_brand(brand)
+                logger.info(f"  ✓ Saved {len(media_packs)} media pack(s) to registry")
+        else:
+            logger.info("  No media packs found")
+    
+    if args.save:
+        brand_manager.save_registry()
+        logger.info(f"\nRegistry saved: {brand_manager.registry_file}")
+    
+    return 0
+
+
+def cmd_media_packs(args, brand_manager, media_discovery, logger):
+    """Show discovered media packs"""
+    from modules import MediaPackInfo
+    
+    if args.brand:
+        # Show for specific brand
+        brand = brand_manager.get_brand(args.brand)
+        if not brand:
+            logger.error(f"Brand not found: {args.brand}")
+            return 1
+        brands = [brand]
+    else:
+        # Show for all brands
+        brands = brand_manager.get_all_brands()
+    
+    # Filter brands that have media packs
+    brands_with_media = [b for b in brands if b.media_packs and len(b.media_packs) > 0]
+    
+    if not brands_with_media:
+        logger.info("No media packs discovered yet. Use 'discover-media' command first.")
+        return 0
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Discovered Media Packs ({len(brands_with_media)} brand(s))")
+    logger.info('='*60)
+    
+    for brand in brands_with_media:
+        logger.info(f"\n{brand.name}")
+        logger.info(f"  Website: {brand.website}")
+        logger.info(f"  Last scan: {brand.last_media_scan}")
+        logger.info(f"  Media packs: {brand.media_pack_count}")
+        
+        if brand.media_packs:
+            # Reconstruct MediaPackInfo objects
+            packs = [MediaPackInfo.from_dict(p) for p in brand.media_packs]
+            
+            # Filter by type if requested
+            if args.type:
+                packs = [p for p in packs if media_discovery.FILE_TYPES.get(p.file_type, {}).get('category') == args.type]
+            
+            # Prioritize
+            prioritized = media_discovery.get_prioritized_packs(packs)
+            
+            for i, pack in enumerate(prioritized, 1):
+                size_str = media_discovery.format_file_size(pack.file_size)
+                status = "✓" if pack.accessible else "✗"
+                restriction = f" [{pack.restriction_type}]" if pack.restricted else ""
+                
+                logger.info(f"\n  {i}. {status} {pack.content_type} ({pack.file_type})")
+                logger.info(f"     {pack.url}")
+                logger.info(f"     Size: {size_str}{restriction}")
+    
+    return 0
+
+
 def main():
     """Main entry point"""
     args = parse_arguments()
@@ -424,6 +576,9 @@ def main():
     # Initialize validator
     validator = BrandValidator(config.request_timeout, logger)
     
+    # Initialize media pack discovery
+    media_discovery = MediaPackDiscovery(config, logger)
+    
     # Execute command
     try:
         if args.command == 'load':
@@ -442,6 +597,10 @@ def main():
             return cmd_remove(args, brand_manager, logger)
         elif args.command == 'history':
             return cmd_history(args, brand_manager, logger)
+        elif args.command == 'discover-media':
+            return cmd_discover_media(args, brand_manager, media_discovery, logger)
+        elif args.command == 'media-packs':
+            return cmd_media_packs(args, brand_manager, media_discovery, logger)
         else:
             logger.error(f"Unknown command: {args.command}")
             return 1

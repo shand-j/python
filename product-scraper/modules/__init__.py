@@ -10,6 +10,7 @@ from .shopify_exporter import ShopifyExporter
 from .product_scraper import ProductScraper
 from .brand_manager import Brand, BrandManager, Priority, BrandStatus
 from .brand_validator import BrandValidator
+from .media_pack_discovery import MediaPackDiscovery, MediaPackInfo
 
 __all__ = [
     'Config',
@@ -23,5 +24,7 @@ __all__ = [
     'BrandManager',
     'BrandValidator',
     'Priority',
-    'BrandStatus'
+    'BrandStatus',
+    'MediaPackDiscovery',
+    'MediaPackInfo'
 ]

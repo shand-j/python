@@ -38,6 +38,9 @@ class Brand:
     error_message: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
+    media_packs: Optional[List[Dict]] = None
+    media_pack_count: int = 0
+    last_media_scan: Optional[str] = None
     
     def __post_init__(self):
         """Validate and normalize fields after initialization"""
