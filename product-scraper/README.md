@@ -43,6 +43,14 @@ A comprehensive Python application for scraping product data from e-commerce web
   - Alternative domain discovery
   - See [Media Pack Discovery Guide](MEDIA_PACK_DISCOVERY.md)
 
+- **Media Pack Download & Extraction** ✨ NEW
+  - Resumable downloads with progress tracking
+  - File integrity verification with checksums
+  - Automatic archive extraction (ZIP, TAR.GZ)
+  - Smart file categorization and organization
+  - Duplicate detection and removal
+  - See [Download & Extraction Guide](MEDIA_PACK_DOWNLOAD_EXTRACT.md)
+
 ### Advanced Features
 - **Error Handling**: Robust error handling with detailed logging
 - **Rate Limiting**: Configurable delays between requests
@@ -155,6 +163,31 @@ python brand_manager.py media-packs --type archive
 ```
 
 See [Media Pack Discovery Guide](MEDIA_PACK_DISCOVERY.md) for complete documentation.
+
+### Media Pack Download & Extraction
+
+Download and extract media packs:
+```bash
+# Download media packs for all brands
+python brand_manager.py download
+
+# Download for specific brand
+python brand_manager.py download --brand "SMOK"
+
+# Download specific URL
+python brand_manager.py download --brand "SMOK" --url "https://smoktech.com/media.zip"
+
+# Extract downloaded archives
+python brand_manager.py extract
+
+# Extract for specific brand
+python brand_manager.py extract --brand "SMOK"
+
+# Extract specific file
+python brand_manager.py extract --brand "SMOK" --file "downloads/SMOK/media-packs/pack.zip"
+```
+
+See [Download & Extraction Guide](MEDIA_PACK_DOWNLOAD_EXTRACT.md) for complete documentation.
 
 ### Advanced Usage
 
