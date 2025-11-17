@@ -1,0 +1,11 @@
+# Brand Configuration File
+# Format: BrandName|website.com|priority
+# Priority: high, medium, low (default: medium)
+# Lines starting with # are comments
+
+SMOK|smoktech.com|high
+Vaporesso|vaporesso.com|high
+VOOPOO|voopoo.com|medium
+GeekVape|geekvape.com|medium
+Lost Vape|lostvape.com|low
+Uwell|uwellvape.com|medium

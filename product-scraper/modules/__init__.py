@@ -8,6 +8,8 @@ from .image_processor import ImageProcessor
 from .gpt_processor import GPTProcessor
 from .shopify_exporter import ShopifyExporter
 from .product_scraper import ProductScraper
+from .brand_manager import Brand, BrandManager, Priority, BrandStatus
+from .brand_validator import BrandValidator
 
 __all__ = [
     'Config',
@@ -16,5 +18,10 @@ __all__ = [
     'ImageProcessor',
     'GPTProcessor',
     'ShopifyExporter',
-    'ProductScraper'
+    'ProductScraper',
+    'Brand',
+    'BrandManager',
+    'BrandValidator',
+    'Priority',
+    'BrandStatus'
 ]

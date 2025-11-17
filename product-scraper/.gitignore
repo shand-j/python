@@ -28,6 +28,8 @@ env/
 
 # Configuration
 config.env
+brands.txt
+brands_registry.json
 
 # Output directories
 output/

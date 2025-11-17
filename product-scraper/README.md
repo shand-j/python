@@ -28,6 +28,13 @@ A comprehensive Python application for scraping product data from e-commerce web
   - JSON export option
   - Data integrity validation
 
+- **Brand Management** ✨ NEW
+  - Configure and validate brand information
+  - Priority-based brand queuing
+  - Website accessibility and SSL validation
+  - Brand registry with history tracking
+  - See [Brand Management Guide](BRAND_MANAGEMENT.md)
+
 ### Advanced Features
 - **Error Handling**: Robust error handling with detailed logging
 - **Rate Limiting**: Configurable delays between requests
@@ -83,7 +90,7 @@ IMAGE_MAX_HEIGHT=1024
 
 ## Usage
 
-### Basic Usage
+### Product Scraping
 
 Scrape a single product:
 ```bash
@@ -99,6 +106,28 @@ Scrape from a file containing URLs:
 ```bash
 python main.py --file urls.txt
 ```
+
+### Brand Management
+
+Configure and validate brands:
+```bash
+# Load brands from file
+python brand_manager.py load brands.txt
+
+# Validate all brands
+python brand_manager.py validate
+
+# Show processing queue (ordered by priority)
+python brand_manager.py queue
+
+# List all brands
+python brand_manager.py list
+
+# Add new brand
+python brand_manager.py add "SMOK" "smoktech.com" --priority high
+```
+
+See [Brand Management Guide](BRAND_MANAGEMENT.md) for complete documentation.
 
 ### Advanced Usage
 
