@@ -45,8 +45,31 @@ class ProductScraper:
         self.logger.info(f"Starting product scrape: {url}")
         
         try:
-            # Extract product data
-            product_data = self.web_scraper.extract_product_data(url)
+            # Fetch page and extract product data
+            response = self.web_scraper.fetch_page(url)
+            soup = self.web_scraper.parse_html(response.text)
+            product_data = self.web_scraper.extract_metadata(soup, url)
+            
+            # Add additional heuristic extraction (from original extract_product_data)
+            if not product_data.get('product_name'):
+                # Try H1 tag
+                h1 = soup.find('h1')
+                if h1:
+                    product_data['product_name'] = h1.get_text(strip=True)
+            
+            if not product_data.get('description'):
+                # Try to find product description div
+                desc_selectors = [
+                    'div.product-description',
+                    'div.description',
+                    'div[itemprop="description"]',
+                    'div.product-details'
+                ]
+                for selector in desc_selectors:
+                    desc_elem = soup.select_one(selector)
+                    if desc_elem:
+                        product_data['description'] = desc_elem.get_text(strip=True)
+                        break
             
             # Use the best available title
             title = (product_data.get('product_name') or 
@@ -95,19 +118,21 @@ class ProductScraper:
                 )
                 product['tags'] = tags
             
-            # Process images if enabled
-            if process_images and product_data.get('images'):
-                self.logger.info(f"Processing {len(product_data['images'])} images")
+            # Process images if enabled (using smart filtering)
+            if process_images:
+                self.logger.info("Processing images with smart filtering")
                 
-                # Create product-specific image directory
-                product_image_dir = self.config.images_dir / self._sanitize_filename(title)
-                
-                processed_images = self.image_processor.process_images(
-                    product_data['images'],
-                    product_image_dir
+                # Use new smart image processing method
+                shopify_images, image_metadata = self.image_processor.process_images(
+                    soup, url  # Pass soup and URL for smart filtering
                 )
-                product['processed_images'] = processed_images
-                self.logger.info(f"Processed {len(processed_images)} images")
+                product['processed_images'] = shopify_images  # Only shopify-ready images
+                product['image_metadata'] = image_metadata  # Full metadata for logging
+                
+                # Log image processing summary
+                img_meta = image_metadata
+                self.logger.info(f"Image processing: {img_meta['shopify_images_count']} for Shopify, "
+                               f"{img_meta['alternative_images_count']} alternative saved for review")
             
             # Add SEO fields
             product['seo_title'] = title
