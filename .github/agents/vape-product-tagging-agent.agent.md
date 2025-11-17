@@ -7,18 +7,6 @@ metadata:
   project_type: data_pipeline
   complexity: high
   domain: e-commerce_vaping
-mcp-servers:
-  ollama:
-    type: local
-    command: ollama
-    tools: ["*"]
-  github:
-    type: github
-    tools: ["read", "search"]
-  shopify:
-    type: custom
-    command: shopify-cli
-    tools: ["import", "export"]
 ---
 
 # Vape Product Tagging Pipeline Development Agent
