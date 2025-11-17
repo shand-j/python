@@ -1,0 +1,294 @@
+# Product Data Scraper for Shopify
+
+A comprehensive Python application for scraping product data from e-commerce websites, enhancing descriptions with AI, and preparing data for Shopify import.
+
+## Features
+
+### Core Functionality
+- **Web Scraping**: Extract product data from various e-commerce website structures
+  - Product titles and descriptions
+  - Specifications and metadata
+  - Navigation and collection data
+  - Hidden content accessible via metadata
+  
+- **Image Processing**
+  - Download all product images
+  - Resize images to configurable dimensions
+  - Maintain image quality and aspect ratio
+  - Optimized for web performance
+
+- **AI-Powered Enhancement**
+  - GPT integration for description enhancement
+  - Intelligent tag generation
+  - Content summarization
+  - SEO optimization
+
+- **Shopify Export**
+  - Complete Shopify product import CSV format
+  - JSON export option
+  - Data integrity validation
+
+### Advanced Features
+- **Error Handling**: Robust error handling with detailed logging
+- **Rate Limiting**: Configurable delays between requests
+- **User Agent Rotation**: Avoid detection and blocking
+- **Proxy Support**: Optional proxy configuration for large-scale scraping
+- **Retry Logic**: Automatic retry with exponential backoff
+- **OS Agnostic**: Compatible with Windows, Mac, and Linux
+
+## Installation
+
+### Prerequisites
+- Python 3.8 or higher
+- pip package manager
+
+### Setup
+
+1. Clone the repository:
+```bash
+cd product-scraper
+```
+
+2. Create a virtual environment:
+
+**Windows:**
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+**Mac/Linux:**
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+
+3. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+4. Configure the application:
+```bash
+cp config.env.example config.env
+```
+
+Edit `config.env` and add your configuration:
+```env
+OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_MODEL=gpt-4
+IMAGE_MAX_WIDTH=1024
+IMAGE_MAX_HEIGHT=1024
+```
+
+## Usage
+
+### Basic Usage
+
+Scrape a single product:
+```bash
+python main.py https://example.com/product-page
+```
+
+Scrape multiple products:
+```bash
+python main.py https://example.com/product1 https://example.com/product2
+```
+
+Scrape from a file containing URLs:
+```bash
+python main.py --file urls.txt
+```
+
+### Advanced Usage
+
+Export to JSON instead of CSV:
+```bash
+python main.py --format json https://example.com/product-page
+```
+
+Skip GPT enhancement (faster, no API costs):
+```bash
+python main.py --no-enhance --no-tags https://example.com/product-page
+```
+
+Skip image processing:
+```bash
+python main.py --no-images https://example.com/product-page
+```
+
+Specify custom output file:
+```bash
+python main.py --output my_products.csv https://example.com/product-page
+```
+
+Use custom configuration file:
+```bash
+python main.py --config custom_config.env https://example.com/product-page
+```
+
+Verbose logging:
+```bash
+python main.py --verbose https://example.com/product-page
+```
+
+### URL File Format
+
+Create a text file (e.g., `urls.txt`) with one URL per line:
+```
+https://example.com/product1
+https://example.com/product2
+https://example.com/product3
+# Lines starting with # are comments and will be ignored
+```
+
+## Configuration
+
+### Configuration File Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `OPENAI_API_KEY` | OpenAI API key for GPT features | Required for AI features |
+| `OPENAI_MODEL` | GPT model to use | `gpt-4` |
+| `IMAGE_MAX_WIDTH` | Maximum image width in pixels | `1024` |
+| `IMAGE_MAX_HEIGHT` | Maximum image height in pixels | `1024` |
+| `IMAGE_QUALITY` | JPEG quality (1-100) | `85` |
+| `REQUEST_TIMEOUT` | HTTP request timeout in seconds | `30` |
+| `REQUEST_DELAY` | Delay between requests in seconds | `2` |
+| `MAX_RETRIES` | Maximum retry attempts | `3` |
+| `USER_AGENT_ROTATION` | Enable user agent rotation | `true` |
+| `USE_PROXY` | Enable proxy usage | `false` |
+| `PROXY_URL` | Proxy server URL | Empty |
+| `OUTPUT_DIR` | Output directory for CSV/JSON files | `./output` |
+| `IMAGES_DIR` | Directory for downloaded images | `./images` |
+| `LOGS_DIR` | Directory for log files | `./logs` |
+| `OUTPUT_FORMAT` | Default output format | `csv` |
+| `LOG_LEVEL` | Logging level | `INFO` |
+
+## Output
+
+### CSV Output
+The application generates a Shopify-compatible CSV file with all required columns:
+- Product information (title, description, vendor, type)
+- Variants and pricing
+- Images with positions
+- SEO metadata
+- Tags and categories
+
+### JSON Output
+Alternative JSON format containing:
+- All extracted metadata
+- Enhanced descriptions
+- Generated tags
+- Image paths
+- Source URLs
+
+### Directory Structure
+```
+product-scraper/
+├── output/              # CSV/JSON export files
+├── images/              # Downloaded and processed images
+│   └── Product_Name/    # Images organized by product
+└── logs/                # Application logs
+```
+
+## Best Practices
+
+### Web Scraping Ethics
+- Respect website terms of service
+- Use appropriate delays between requests
+- Don't overload target servers
+- Consider using proxy servers for large-scale scraping
+- Check robots.txt before scraping
+
+### Performance Optimization
+- Process images only when needed (`--no-images`)
+- Skip GPT enhancement for testing (`--no-enhance`)
+- Adjust `REQUEST_DELAY` based on target website
+- Use proxy rotation for large batches
+
+### Error Handling
+- Review log files in `logs/` directory
+- Check failed URLs in console output
+- Verify configuration before large batches
+- Test with single URL first
+
+## Troubleshooting
+
+### Common Issues
+
+**"OPENAI_API_KEY is required"**
+- Add your OpenAI API key to `config.env`
+- Or use `--no-enhance --no-tags` to skip AI features
+
+**"Connection timeout"**
+- Increase `REQUEST_TIMEOUT` in config
+- Check your internet connection
+- Verify the URL is accessible
+
+**"Failed to download image"**
+- Some websites block automated downloads
+- Check if proxy is needed
+- Verify image URLs are accessible
+
+**"No product data extracted"**
+- The website structure may not be supported
+- Check logs for detailed error messages
+- May need custom extraction rules
+
+## Dependencies
+
+- **requests**: HTTP library for fetching web pages
+- **beautifulsoup4**: HTML parsing and extraction
+- **lxml**: Fast XML and HTML parser
+- **Pillow**: Image processing and resizing
+- **openai**: GPT API integration
+- **pandas**: Data manipulation and CSV export
+- **python-dotenv**: Environment variable management
+- **fake-useragent**: User agent rotation
+- **tenacity**: Retry logic with exponential backoff
+- **colorlog**: Enhanced logging
+
+## Architecture
+
+### Module Structure
+
+```
+modules/
+├── config.py              # Configuration management
+├── logger.py              # Logging setup
+├── scraper.py             # Web scraping logic
+├── image_processor.py     # Image downloading and resizing
+├── gpt_processor.py       # GPT integration
+├── shopify_exporter.py    # Shopify CSV export
+└── product_scraper.py     # Main orchestrator
+```
+
+### Processing Pipeline
+
+1. **URL Input** → Load URLs from command line or file
+2. **Web Scraping** → Fetch and parse HTML with BeautifulSoup
+3. **Data Extraction** → Extract metadata, images, and content
+4. **Image Processing** → Download and resize images
+5. **AI Enhancement** → Enhance descriptions and generate tags (optional)
+6. **Export** → Generate Shopify CSV or JSON output
+
+## License
+
+This project is provided as-is for product data processing and Shopify integration.
+
+## Support
+
+For issues and questions:
+1. Check the log files in `logs/` directory
+2. Review this README for common solutions
+3. Verify your configuration in `config.env`
+
+## Contributing
+
+Contributions are welcome! Areas for enhancement:
+- Support for additional e-commerce platforms
+- Custom extraction rules per website
+- Advanced image recognition
+- Multi-language support
+- Database storage options
