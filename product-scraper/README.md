@@ -59,6 +59,14 @@ A comprehensive Python application for scraping product data from e-commerce web
   - Configurable scraping parameters
   - See [Competitor Configuration Guide](COMPETITOR_CONFIGURATION.md)
 
+- **Competitor Product Discovery** ✨ NEW
+  - Discover products on competitor websites
+  - Automatic category navigation with pagination
+  - Brand-specific product filtering
+  - Product data extraction (title, price, images, stock)
+  - Build comprehensive product inventories
+  - See [Product Discovery Guide](PRODUCT_DISCOVERY.md)
+
 ### Advanced Features
 - **Error Handling**: Robust error handling with detailed logging
 - **Rate Limiting**: Configurable delays between requests
@@ -222,6 +230,28 @@ python competitor_manager.py analyze --site "Vape UK"
 
 See [Competitor Configuration Guide](COMPETITOR_CONFIGURATION.md) for complete documentation.
 
+### Competitor Product Discovery
+
+Discover and catalog products from competitor websites:
+```bash
+# Discover products from all active competitor sites
+python competitor_manager.py discover --brands brands_registry.json --save
+
+# Discover from specific site with max 20 pages per category
+python competitor_manager.py discover --site "Vape UK" --brands brands.txt --max-pages 20 --save
+
+# View all discovered products
+python competitor_manager.py products
+
+# Filter by brand
+python competitor_manager.py products --brand "SMOK"
+
+# Filter by site and category
+python competitor_manager.py products --site "Vape UK" --category "vape-kits"
+```
+
+See [Product Discovery Guide](PRODUCT_DISCOVERY.md) for complete documentation.
+
 ### Advanced Usage
 
 Export to JSON instead of CSV:
@@ -377,14 +407,30 @@ product-scraper/
 
 ```
 modules/
-├── config.py              # Configuration management
-├── logger.py              # Logging setup
-├── scraper.py             # Web scraping logic
-├── image_processor.py     # Image downloading and resizing
-├── gpt_processor.py       # GPT integration
-├── shopify_exporter.py    # Shopify CSV export
-└── product_scraper.py     # Main orchestrator
+├── config.py                   # Configuration management
+├── logger.py                   # Logging setup
+├── scraper.py                  # Web scraping logic
+├── image_processor.py          # Image downloading and resizing
+├── gpt_processor.py            # GPT integration
+├── shopify_exporter.py         # Shopify CSV export
+├── product_scraper.py          # Main orchestrator
+├── brand_manager.py            # Brand registry management
+├── brand_validator.py          # Brand website validation
+├── media_pack_discovery.py     # Media pack discovery
+├── media_pack_downloader.py    # Media pack downloads
+├── media_pack_extractor.py     # Archive extraction
+├── competitor_site_manager.py  # Competitor site management
+├── robots_txt_parser.py        # Robots.txt compliance
+├── site_health_monitor.py      # Site health monitoring
+├── user_agent_rotator.py       # User agent rotation
+└── product_discovery.py        # Product discovery on competitor sites
 ```
+
+### CLI Tools
+
+- **`main.py`** - Original product scraper (12 commands)
+- **`brand_manager.py`** - Brand management CLI (12 commands: load, validate, queue, list, add, update, remove, history, discover-media, media-packs, download, extract)
+- **`competitor_manager.py`** - Competitor site management CLI (11 commands: load, list, add, update, remove, health, robots, analyze, history, discover, products)
 
 ### Processing Pipeline
 
