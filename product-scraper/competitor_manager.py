@@ -11,7 +11,9 @@ from modules import (
     Config, setup_logger,
     CompetitorSite, CompetitorSiteManager,
     ScrapingParameters, SitePriority, SiteStatus,
-    RobotsTxtParser, SiteHealthMonitor, UserAgentRotator
+    RobotsTxtParser, SiteHealthMonitor, UserAgentRotator,
+    ProductDiscovery, DiscoveredProduct, ProductInventory,
+    BrandManager
 )
 
 
@@ -39,6 +41,15 @@ Examples:
   
   # Analyze site structure
   python competitor_manager.py analyze --site "Vape UK"
+  
+  # Discover products on competitor sites
+  python competitor_manager.py discover --brands brands_registry.json --save
+  
+  # Discover from specific site
+  python competitor_manager.py discover --site "Vape UK" --brands brands.txt --max-pages 20
+  
+  # View discovered products
+  python competitor_manager.py products --brand "SMOK"
         """
     )
     
@@ -150,6 +161,48 @@ Examples:
     
     # History command
     subparsers.add_parser('history', help='Show registry history')
+    
+    # Discover command
+    discover_parser = subparsers.add_parser('discover', help='Discover products on competitor sites')
+    discover_parser.add_argument(
+        '--site', '-s',
+        type=str,
+        help='Discover from specific site only'
+    )
+    discover_parser.add_argument(
+        '--brands', '-b',
+        type=str,
+        help='Brand list file (one brand per line) or brands_registry.json'
+    )
+    discover_parser.add_argument(
+        '--max-pages', '-m',
+        type=int,
+        default=10,
+        help='Max pages per category (default: 10)'
+    )
+    discover_parser.add_argument(
+        '--save', '-o',
+        action='store_true',
+        help='Save discovered products to inventory'
+    )
+    
+    # Products command
+    products_parser = subparsers.add_parser('products', help='View discovered products')
+    products_parser.add_argument(
+        '--site', '-s',
+        type=str,
+        help='Filter by competitor site'
+    )
+    products_parser.add_argument(
+        '--brand', '-b',
+        type=str,
+        help='Filter by brand'
+    )
+    products_parser.add_argument(
+        '--category', '-c',
+        type=str,
+        help='Filter by category'
+    )
     
     args = parser.parse_args()
     
@@ -374,6 +427,192 @@ def cmd_history(args, site_manager, logger):
     return 0
 
 
+def cmd_discover(args, site_manager, logger):
+    """Discover products on competitor sites"""
+    import json
+    from pathlib import Path
+    
+    # Load target brands
+    if args.brands:
+        brands_file = Path(args.brands)
+        if not brands_file.exists():
+            logger.error(f"Brands file not found: {brands_file}")
+            return 1
+        
+        # Check if it's the brands registry JSON
+        if brands_file.suffix == '.json':
+            with open(brands_file, 'r') as f:
+                brands_data = json.load(f)
+                target_brands = [brand['name'] for brand in brands_data.get('brands', [])]
+        else:
+            # Plain text file, one brand per line
+            target_brands = []
+            with open(brands_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith('#'):
+                        target_brands.append(line)
+    else:
+        # Try to load from default brands registry
+        default_registry = Path('brands_registry.json')
+        if default_registry.exists():
+            with open(default_registry, 'r') as f:
+                brands_data = json.load(f)
+                target_brands = [brand['name'] for brand in brands_data.get('brands', [])]
+        else:
+            logger.error("No brands specified. Use --brands to specify target brands")
+            return 1
+    
+    if not target_brands:
+        logger.error("No target brands loaded")
+        return 1
+    
+    logger.info(f"Target brands ({len(target_brands)}): {', '.join(target_brands)}")
+    
+    # Get sites to process
+    if args.site:
+        site = site_manager.get_site(args.site)
+        if not site:
+            logger.error(f"Site not found: {args.site}")
+            return 1
+        sites = [site]
+    else:
+        sites = site_manager.get_sites_by_status('active')
+        if not sites:
+            logger.info("No active sites found. Using all sites...")
+            sites = site_manager.get_all_sites()
+    
+    if not sites:
+        logger.error("No sites to process")
+        return 1
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Product Discovery ({len(sites)} site(s))")
+    logger.info('='*60)
+    
+    # Initialize product discovery
+    discovery = ProductDiscovery()
+    
+    # Process each site
+    all_inventories = []
+    for site in sites:
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Processing: {site.name}")
+        logger.info('='*60)
+        
+        try:
+            inventory = discovery.discover_products_for_site(
+                competitor_site=site.name,
+                base_url=site.base_url,
+                target_brands=target_brands,
+                max_pages_per_category=args.max_pages,
+                delay=site.scraping_params.request_delay,
+                timeout=site.scraping_params.timeout_seconds
+            )
+            
+            all_inventories.append(inventory)
+            
+            # Display summary
+            logger.info(f"\n{'='*60}")
+            logger.info(f"Discovery Summary: {site.name}")
+            logger.info('='*60)
+            logger.info(f"Total products found: {inventory.total_products}")
+            logger.info(f"\nBy Brand:")
+            for brand, products in inventory.brand_products.items():
+                logger.info(f"  {brand}: {len(products)} products")
+            logger.info(f"\nBy Category:")
+            for category, count in inventory.category_summary.items():
+                logger.info(f"  {category}: {count} products")
+            
+            # Save if requested
+            if args.save:
+                output_dir = Path('data/product_inventory')
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
+                output_file = output_dir / f"{site.name.lower().replace(' ', '_')}_inventory.json"
+                with open(output_file, 'w') as f:
+                    json.dump(inventory.to_dict(), f, indent=2)
+                
+                logger.info(f"\n✓ Inventory saved: {output_file}")
+        
+        except Exception as e:
+            logger.error(f"Error processing {site.name}: {e}", exc_info=True)
+            continue
+    
+    # Overall summary
+    if all_inventories:
+        total_products = sum(inv.total_products for inv in all_inventories)
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Overall Discovery Summary")
+        logger.info('='*60)
+        logger.info(f"Sites processed: {len(all_inventories)}")
+        logger.info(f"Total products discovered: {total_products}")
+    
+    return 0
+
+
+def cmd_products(args, logger):
+    """View discovered products"""
+    import json
+    from pathlib import Path
+    
+    inventory_dir = Path('data/product_inventory')
+    if not inventory_dir.exists():
+        logger.info("No product inventory found. Run 'discover' command first.")
+        return 0
+    
+    # Load all inventories
+    inventories = []
+    for inventory_file in inventory_dir.glob('*_inventory.json'):
+        with open(inventory_file, 'r') as f:
+            inventories.append(json.load(f))
+    
+    if not inventories:
+        logger.info("No product inventory found")
+        return 0
+    
+    # Filter by site if specified
+    if args.site:
+        inventories = [inv for inv in inventories if inv['competitor_site'] == args.site]
+    
+    # Display products
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Discovered Products")
+    logger.info('='*60)
+    
+    for inventory in inventories:
+        site_name = inventory['competitor_site']
+        
+        if args.brand:
+            # Filter by brand
+            if args.brand not in inventory['brand_products']:
+                continue
+            products = inventory['brand_products'][args.brand]
+            logger.info(f"\n{site_name} - {args.brand} ({len(products)} products)")
+        else:
+            # Show all brands
+            logger.info(f"\n{site_name} ({inventory['total_products']} products)")
+            for brand, products in inventory['brand_products'].items():
+                if args.category:
+                    # Filter by category
+                    products = [p for p in products if p['category'] == args.category]
+                    if not products:
+                        continue
+                
+                logger.info(f"\n  {brand} ({len(products)} products):")
+                for product in products[:10]:  # Show first 10
+                    status = "✓" if product.get('in_stock', True) else "✗"
+                    logger.info(f"    {status} {product['title']}")
+                    logger.info(f"      {product['url']}")
+                    if product.get('price'):
+                        logger.info(f"      Price: {product['price']}")
+                
+                if len(products) > 10:
+                    logger.info(f"    ... and {len(products) - 10} more")
+    
+    return 0
+
+
 def main():
     """Main entry point"""
     args = parse_arguments()
@@ -422,6 +661,10 @@ def main():
             return cmd_analyze(args, site_manager, logger)
         elif args.command == 'history':
             return cmd_history(args, site_manager, logger)
+        elif args.command == 'discover':
+            return cmd_discover(args, site_manager, logger)
+        elif args.command == 'products':
+            return cmd_products(args, logger)
         else:
             logger.error(f"Unknown command: {args.command}")
             return 1

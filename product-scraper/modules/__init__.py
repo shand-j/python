@@ -21,6 +21,7 @@ from .competitor_site_manager import (
 from .robots_txt_parser import RobotsTxtParser
 from .site_health_monitor import SiteHealthMonitor
 from .user_agent_rotator import UserAgentRotator
+from .product_discovery import ProductDiscovery, DiscoveredProduct, ProductInventory
 
 __all__ = [
     'Config',
@@ -50,5 +51,8 @@ __all__ = [
     'SiteStatus',
     'RobotsTxtParser',
     'SiteHealthMonitor',
-    'UserAgentRotator'
+    'UserAgentRotator',
+    'ProductDiscovery',
+    'DiscoveredProduct',
+    'ProductInventory'
 ]
