@@ -22,6 +22,8 @@ from .robots_txt_parser import RobotsTxtParser
 from .site_health_monitor import SiteHealthMonitor
 from .user_agent_rotator import UserAgentRotator
 from .product_discovery import ProductDiscovery, DiscoveredProduct, ProductInventory
+from .image_extractor import ImageExtractor, ExtractedImage
+from .competitor_image_downloader import CompetitorImageDownloader
 
 __all__ = [
     'Config',
@@ -54,5 +56,8 @@ __all__ = [
     'UserAgentRotator',
     'ProductDiscovery',
     'DiscoveredProduct',
-    'ProductInventory'
+    'ProductInventory',
+    'ImageExtractor',
+    'ExtractedImage',
+    'CompetitorImageDownloader'
 ]

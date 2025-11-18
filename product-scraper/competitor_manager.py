@@ -13,7 +13,7 @@ from modules import (
     ScrapingParameters, SitePriority, SiteStatus,
     RobotsTxtParser, SiteHealthMonitor, UserAgentRotator,
     ProductDiscovery, DiscoveredProduct, ProductInventory,
-    BrandManager
+    BrandManager, ImageExtractor, ExtractedImage, CompetitorImageDownloader
 )
 
 
@@ -202,6 +202,50 @@ Examples:
         '--category', '-c',
         type=str,
         help='Filter by category'
+    )
+    
+    # Extract-images command
+    extract_parser = subparsers.add_parser('extract-images', help='Extract images from discovered products')
+    extract_parser.add_argument(
+        '--brand', '-b',
+        type=str,
+        help='Extract images for specific brand only'
+    )
+    extract_parser.add_argument(
+        '--site', '-s',
+        type=str,
+        help='Extract from specific competitor site only'
+    )
+    extract_parser.add_argument(
+        '--max-products', '-p',
+        type=int,
+        default=10,
+        help='Maximum products to process (default: 10)'
+    )
+    extract_parser.add_argument(
+        '--images-per-product', '-i',
+        type=int,
+        default=5,
+        help='Maximum images per product (default: 5)'
+    )
+    extract_parser.add_argument(
+        '--min-quality', '-q',
+        type=int,
+        default=50,
+        help='Minimum quality score 0-100 (default: 50)'
+    )
+    extract_parser.add_argument(
+        '--save', '-o',
+        action='store_true',
+        help='Download and save images'
+    )
+    
+    # Images command
+    images_parser = subparsers.add_parser('images', help='View downloaded images summary')
+    images_parser.add_argument(
+        '--brand', '-b',
+        type=str,
+        help='Filter by brand'
     )
     
     args = parser.parse_args()
@@ -613,6 +657,179 @@ def cmd_products(args, logger):
     return 0
 
 
+def cmd_extract_images(args, site_manager, logger):
+    """Extract images from discovered products"""
+    import json
+    from pathlib import Path
+    
+    logger.info("="*60)
+    logger.info("Extracting Product Images")
+    logger.info("="*60)
+    
+    # Initialize extractors
+    image_extractor = ImageExtractor()
+    image_downloader = CompetitorImageDownloader()
+    
+    # Load product inventory
+    inventory_dir = Path("data/product_inventory")
+    
+    if not inventory_dir.exists():
+        logger.error("No product inventory found. Run 'discover' first.")
+        return 1
+    
+    # Collect products to process
+    products_to_process = []
+    
+    for inventory_file in inventory_dir.glob("*.json"):
+        try:
+            with open(inventory_file, 'r') as f:
+                inventory = json.load(f)
+            
+            competitor_site = inventory.get('competitor_site', 'unknown')
+            
+            # Filter by site if specified
+            if args.site and args.site.lower() not in competitor_site.lower():
+                continue
+            
+            for brand, brand_data in inventory.get('brands', {}).items():
+                # Filter by brand if specified
+                if args.brand and args.brand.lower() != brand.lower():
+                    continue
+                
+                for category, products in brand_data.get('categories', {}).items():
+                    for product in products:
+                        products_to_process.append({
+                            'brand': brand,
+                            'name': product['title'],
+                            'url': product['url'],
+                            'competitor_site': competitor_site
+                        })
+                        
+                        # Limit products
+                        if len(products_to_process) >= args.max_products:
+                            break
+                    
+                    if len(products_to_process) >= args.max_products:
+                        break
+                
+                if len(products_to_process) >= args.max_products:
+                    break
+        
+        except Exception as e:
+            logger.warning(f"Error loading inventory {inventory_file}: {e}")
+            continue
+    
+    if not products_to_process:
+        logger.info("No products found matching filters")
+        return 0
+    
+    logger.info(f"Processing {len(products_to_process)} products")
+    
+    # Extract and download images
+    total_extracted = 0
+    total_downloaded = 0
+    
+    for i, product in enumerate(products_to_process):
+        logger.info(f"\n{'='*60}")
+        logger.info(f"Product {i+1}/{len(products_to_process)}: {product['name']}")
+        logger.info(f"{'='*60}")
+        
+        try:
+            # Extract images
+            images = image_extractor.extract_images(product['url'])
+            
+            if not images:
+                logger.warning(f"No images found for {product['name']}")
+                continue
+            
+            total_extracted += len(images)
+            logger.info(f"Extracted {len(images)} images")
+            
+            # Filter by quality
+            quality_images = image_extractor.filter_quality_images(
+                images,
+                min_quality=args.min_quality,
+                analyze=True
+            )
+            
+            if not quality_images:
+                logger.warning(f"No quality images found (min quality: {args.min_quality})")
+                continue
+            
+            logger.info(f"Quality images: {len(quality_images)}")
+            
+            # Get best images
+            best_images = image_extractor.get_best_images(
+                quality_images,
+                max_images=args.images_per_product
+            )
+            
+            logger.info(f"Selected {len(best_images)} best images")
+            
+            # Show image info
+            for j, img in enumerate(best_images[:3]):  # Show first 3
+                logger.info(f"  Image {j+1}: {img.image_type} (quality: {img.quality_score})")
+                if img.width and img.height:
+                    logger.info(f"    Size: {img.width}x{img.height}px")
+            
+            # Download if requested
+            if args.save:
+                metadata = image_downloader.download_product_images(
+                    brand=product['brand'],
+                    product_name=product['name'],
+                    images=best_images,
+                    competitor_site=product['competitor_site'],
+                    max_images=args.images_per_product
+                )
+                
+                total_downloaded += metadata['downloaded']
+                logger.info(f"✓ Downloaded {metadata['downloaded']} images")
+            
+            # Small delay between products
+            import time
+            time.sleep(1.0)
+            
+        except Exception as e:
+            logger.error(f"Error processing product {product['name']}: {e}")
+            continue
+    
+    logger.info(f"\n{'='*60}")
+    logger.info("Extraction Summary")
+    logger.info('='*60)
+    logger.info(f"Total images extracted: {total_extracted}")
+    if args.save:
+        logger.info(f"Total images downloaded: {total_downloaded}")
+    
+    return 0
+
+
+def cmd_images(args, logger):
+    """View downloaded images summary"""
+    downloader = CompetitorImageDownloader()
+    summary = downloader.get_download_summary(brand=args.brand)
+    
+    if summary['total_images'] == 0:
+        logger.info("No downloaded images found")
+        return 0
+    
+    logger.info("\n"+"="*60)
+    logger.info("Downloaded Images Summary")
+    logger.info("="*60)
+    logger.info(f"Total Brands: {summary['total_brands']}")
+    logger.info(f"Total Images: {summary['total_images']}")
+    logger.info(f"Total Size: {summary['total_size_mb']} MB")
+    
+    for brand_name, brand_stats in summary['brands'].items():
+        logger.info(f"\n{brand_name.upper()}")
+        logger.info(f"  Total Images: {brand_stats['total_images']}")
+        logger.info(f"  Total Size: {brand_stats['total_size_mb']} MB")
+        
+        for site_name, site_stats in brand_stats['competitor_sites'].items():
+            logger.info(f"    {site_name}: {site_stats['image_count']} images ({site_stats['size_mb']} MB)")
+    
+    return 0
+
+
 def main():
     """Main entry point"""
     args = parse_arguments()
@@ -665,6 +882,10 @@ def main():
             return cmd_discover(args, site_manager, logger)
         elif args.command == 'products':
             return cmd_products(args, logger)
+        elif args.command == 'extract-images':
+            return cmd_extract_images(args, site_manager, logger)
+        elif args.command == 'images':
+            return cmd_images(args, logger)
         else:
             logger.error(f"Unknown command: {args.command}")
             return 1
