@@ -27,6 +27,10 @@ from .competitor_image_downloader import CompetitorImageDownloader
 from .image_quality_assessor import ImageQualityAssessor, QualityMetrics
 from .brand_consistency_validator import BrandConsistencyValidator, BrandConsistencyReport, ColorPalette
 from .content_categorizer import ContentCategorizer, ContentMetadata
+from .product_matcher import ProductMatcher, ProductMatch, UnifiedProduct
+from .source_priority_deduplicator import SourcePriorityDeduplicator, MediaAsset, DeduplicationResult, SourcePriority
+from .image_similarity_detector import ImageSimilarityDetector, ImageHash, SimilarityMatch
+from .media_catalog_builder import MediaCatalogBuilder, CatalogProduct, CatalogStats
 
 __all__ = [
     'Config',
@@ -69,5 +73,18 @@ __all__ = [
     'BrandConsistencyReport',
     'ColorPalette',
     'ContentCategorizer',
-    'ContentMetadata'
+    'ContentMetadata',
+    'ProductMatcher',
+    'ProductMatch',
+    'UnifiedProduct',
+    'SourcePriorityDeduplicator',
+    'MediaAsset',
+    'DeduplicationResult',
+    'SourcePriority',
+    'ImageSimilarityDetector',
+    'ImageHash',
+    'SimilarityMatch',
+    'MediaCatalogBuilder',
+    'CatalogProduct',
+    'CatalogStats'
 ]
