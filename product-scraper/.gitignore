@@ -30,6 +30,8 @@ env/
 config.env
 brands.txt
 brands_registry.json
+competitor_sites.txt
+competitor_sites_registry.json
 
 # Output directories
 output/

@@ -1,0 +1,13 @@
+# Competitor Sites Configuration
+# Format: Name|Base URL|Priority
+# Priority: high, medium, low
+#
+# Example:
+# Vape UK|https://vapeuk.co.uk|high
+#
+# Major UK Vape Retailers:
+
+Vape UK|https://vapeuk.co.uk|high
+Vape Superstore|https://www.vapesuperstore.co.uk|high
+Vapourism|https://www.vapourism.co.uk|high
+E-Cigarette Direct|https://www.ecigarettedirect.co.uk|medium

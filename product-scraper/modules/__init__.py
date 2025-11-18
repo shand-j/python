@@ -13,6 +13,14 @@ from .brand_validator import BrandValidator
 from .media_pack_discovery import MediaPackDiscovery, MediaPackInfo
 from .media_pack_downloader import MediaPackDownloader, DownloadProgress
 from .media_pack_extractor import MediaPackExtractor
+from .competitor_site_manager import (
+    CompetitorSite, CompetitorSiteManager, 
+    ScrapingParameters, SiteStructure, RobotsTxtInfo, SiteHealth,
+    Priority as SitePriority, SiteStatus
+)
+from .robots_txt_parser import RobotsTxtParser
+from .site_health_monitor import SiteHealthMonitor
+from .user_agent_rotator import UserAgentRotator
 
 __all__ = [
     'Config',
@@ -31,5 +39,16 @@ __all__ = [
     'MediaPackInfo',
     'MediaPackDownloader',
     'DownloadProgress',
-    'MediaPackExtractor'
+    'MediaPackExtractor',
+    'CompetitorSite',
+    'CompetitorSiteManager',
+    'ScrapingParameters',
+    'SiteStructure',
+    'RobotsTxtInfo',
+    'SiteHealth',
+    'SitePriority',
+    'SiteStatus',
+    'RobotsTxtParser',
+    'SiteHealthMonitor',
+    'UserAgentRotator'
 ]
