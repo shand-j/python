@@ -50,7 +50,7 @@ Edit `config.env` with your preferences:
 ```env
 # For AI-powered tagging (optional)
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama2
+OLLAMA_MODEL=gpt-oss:latest
 ENABLE_AI_TAGGING=true
 
 # For rule-based only (faster, no AI required)
