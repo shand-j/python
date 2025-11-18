@@ -13,7 +13,8 @@ from modules import (
     ScrapingParameters, SitePriority, SiteStatus,
     RobotsTxtParser, SiteHealthMonitor, UserAgentRotator,
     ProductDiscovery, DiscoveredProduct, ProductInventory,
-    BrandManager, ImageExtractor, ExtractedImage, CompetitorImageDownloader
+    BrandManager, ImageExtractor, ExtractedImage, CompetitorImageDownloader,
+    ImageQualityAssessor, BrandConsistencyValidator, ContentCategorizer
 )
 
 
@@ -246,6 +247,30 @@ Examples:
         '--brand', '-b',
         type=str,
         help='Filter by brand'
+    )
+    
+    # Validate content command
+    validate_parser = subparsers.add_parser('validate-content', help='Validate content quality')
+    validate_parser.add_argument(
+        '--brand', '-b',
+        type=str,
+        help='Validate content for specific brand only'
+    )
+    validate_parser.add_argument(
+        '--site', '-s',
+        type=str,
+        help='Validate content from specific competitor site only'
+    )
+    validate_parser.add_argument(
+        '--min-score', '-m',
+        type=float,
+        default=6.0,
+        help='Minimum acceptable quality score (1-10, default: 6.0)'
+    )
+    validate_parser.add_argument(
+        '--report', '-r',
+        type=str,
+        help='Save report to specified file'
     )
     
     args = parser.parse_args()
@@ -830,6 +855,124 @@ def cmd_images(args, logger):
     return 0
 
 
+def cmd_validate_content(args, logger):
+    """Validate content quality from competitor images"""
+    import json
+    
+    # Determine directory to check
+    base_dir = Path("competitor_images")
+    
+    if not base_dir.exists():
+        logger.info("No competitor images found")
+        logger.info("Extract images first using 'extract-images' command")
+        return 0
+    
+    # Initialize assessors
+    quality_assessor = ImageQualityAssessor()
+    consistency_validator = BrandConsistencyValidator()
+    categorizer = ContentCategorizer()
+    
+    logger.info("\n"+"="*60)
+    logger.info("Content Quality Validation")
+    logger.info("="*60)
+    
+    # Determine brands to check
+    if args.brand:
+        brand_dirs = [base_dir / args.brand]
+    else:
+        brand_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
+    
+    all_results = {}
+    
+    for brand_dir in brand_dirs:
+        if not brand_dir.exists():
+            continue
+        
+        brand_name = brand_dir.name
+        logger.info(f"\n{brand_name.upper()}")
+        
+        # Filter by site if specified
+        if args.site:
+            site_dirs = [brand_dir / args.site]
+        else:
+            site_dirs = [d for d in brand_dir.iterdir() if d.is_dir()]
+        
+        brand_results = {}
+        
+        for site_dir in site_dirs:
+            if not site_dir.exists():
+                continue
+            
+            site_name = site_dir.name
+            logger.info(f"\n  {site_name}")
+            
+            # Assess image quality
+            logger.info(f"    Assessing image quality...")
+            quality_results = quality_assessor.batch_assess(str(site_dir))
+            
+            if quality_results:
+                passed = sum(1 for m in quality_results.values() if m.passed_quality)
+                failed = len(quality_results) - passed
+                avg_score = sum(m.overall_score for m in quality_results.values()) / len(quality_results)
+                
+                logger.info(f"    Total images: {len(quality_results)}")
+                logger.info(f"    Passed quality: {passed} ({(passed/len(quality_results)*100):.1f}%)")
+                logger.info(f"    Average score: {avg_score:.1f}/10")
+                
+                # Report low quality images
+                low_quality = [
+                    (fname, m.overall_score) 
+                    for fname, m in quality_results.items() 
+                    if m.overall_score < args.min_score
+                ]
+                
+                if low_quality:
+                    logger.info(f"    Low quality images (< {args.min_score}):")
+                    for fname, score in low_quality[:3]:
+                        logger.info(f"      - {fname}: {score:.1f}/10")
+                    if len(low_quality) > 3:
+                        logger.info(f"      ... and {len(low_quality)-3} more")
+                
+                # Categorize content
+                logger.info(f"    Categorizing content...")
+                content_metadata = categorizer.batch_categorize(str(site_dir))
+                
+                if content_metadata:
+                    categories = {}
+                    for metadata in content_metadata.values():
+                        cat = metadata.category
+                        categories[cat] = categories.get(cat, 0) + 1
+                    
+                    logger.info(f"    Content categories:")
+                    for cat, count in sorted(categories.items(), key=lambda x: x[1], reverse=True):
+                        logger.info(f"      - {cat}: {count} files")
+                
+                # Store results
+                brand_results[site_name] = {
+                    'quality': {fname: vars(m) for fname, m in quality_results.items()},
+                    'categories': {fname: vars(m) for fname, m in content_metadata.items()}
+                }
+        
+        if brand_results:
+            all_results[brand_name] = brand_results
+    
+    # Generate report if requested
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(report_path, 'w') as f:
+            json.dump(all_results, f, indent=2, default=str)
+        
+        logger.info(f"\n✓ Content validation report saved to: {report_path}")
+    
+    logger.info("\n"+"="*60)
+    logger.info("Content Quality Validation Complete")
+    logger.info("="*60)
+    
+    return 0
+
+
 def main():
     """Main entry point"""
     args = parse_arguments()
@@ -886,6 +1029,8 @@ def main():
             return cmd_extract_images(args, site_manager, logger)
         elif args.command == 'images':
             return cmd_images(args, logger)
+        elif args.command == 'validate-content':
+            return cmd_validate_content(args, logger)
         else:
             logger.error(f"Unknown command: {args.command}")
             return 1

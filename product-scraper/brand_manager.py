@@ -13,7 +13,10 @@ from modules import (
     Brand, BrandStatus,
     MediaPackDiscovery,
     MediaPackDownloader,
-    MediaPackExtractor
+    MediaPackExtractor,
+    ImageQualityAssessor,
+    BrandConsistencyValidator,
+    ContentCategorizer
 )
 
 
@@ -222,6 +225,30 @@ Examples:
         '--no-organize',
         action='store_true',
         help='Skip file organization'
+    )
+    
+    # Quality check command
+    quality_parser = subparsers.add_parser('quality-check', help='Assess quality of media assets')
+    quality_parser.add_argument(
+        '--brand', '-b',
+        type=str,
+        help='Check quality for specific brand only'
+    )
+    quality_parser.add_argument(
+        '--directory', '-d',
+        type=str,
+        help='Directory to assess (default: extracted/)'
+    )
+    quality_parser.add_argument(
+        '--min-score', '-m',
+        type=float,
+        default=6.0,
+        help='Minimum acceptable quality score (1-10, default: 6.0)'
+    )
+    quality_parser.add_argument(
+        '--report', '-r',
+        type=str,
+        help='Save report to specified file'
     )
     
     args = parser.parse_args()
@@ -787,6 +814,125 @@ def cmd_extract(args, brand_manager, extractor, logger):
     return 0 if total_failed == 0 else 1
 
 
+def cmd_quality_check(args, brand_manager, logger):
+    """Assess quality of media assets"""
+    from pathlib import Path
+    import json
+    
+    # Determine directory to check
+    if args.directory:
+        base_dir = Path(args.directory)
+    else:
+        base_dir = Path("extracted")
+    
+    if not base_dir.exists():
+        logger.info(f"Directory not found: {base_dir}")
+        logger.info("Extract media packs first using 'extract' command")
+        return 0
+    
+    # Initialize assessors
+    quality_assessor = ImageQualityAssessor()
+    consistency_validator = BrandConsistencyValidator()
+    categorizer = ContentCategorizer()
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Quality Assessment")
+    logger.info('='*60)
+    
+    # Determine brands to check
+    if args.brand:
+        brand_dirs = [base_dir / args.brand]
+    else:
+        brand_dirs = [d for d in base_dir.iterdir() if d.is_dir()]
+    
+    all_results = {}
+    
+    for brand_dir in brand_dirs:
+        if not brand_dir.exists():
+            continue
+        
+        brand_name = brand_dir.name
+        logger.info(f"\n{brand_name}")
+        
+        # Assess image quality
+        logger.info(f"  Assessing image quality...")
+        quality_results = quality_assessor.batch_assess(str(brand_dir))
+        
+        if quality_results:
+            passed = sum(1 for m in quality_results.values() if m.passed_quality)
+            failed = len(quality_results) - passed
+            avg_score = sum(m.overall_score for m in quality_results.values()) / len(quality_results)
+            
+            logger.info(f"  Total images: {len(quality_results)}")
+            logger.info(f"  Passed quality: {passed} ({(passed/len(quality_results)*100):.1f}%)")
+            logger.info(f"  Failed quality: {failed}")
+            logger.info(f"  Average score: {avg_score:.1f}/10")
+            
+            # Report on low quality images
+            low_quality = [
+                (fname, m.overall_score) 
+                for fname, m in quality_results.items() 
+                if m.overall_score < args.min_score
+            ]
+            
+            if low_quality:
+                logger.info(f"  Low quality images (< {args.min_score}):")
+                for fname, score in low_quality[:5]:  # Show first 5
+                    logger.info(f"    - {fname}: {score:.1f}/10")
+                if len(low_quality) > 5:
+                    logger.info(f"    ... and {len(low_quality)-5} more")
+            
+            # Validate brand consistency
+            logger.info(f"  Validating brand consistency...")
+            consistency_report = consistency_validator.validate_brand_assets(brand_name, str(brand_dir))
+            
+            if consistency_report:
+                logger.info(f"  Consistency score: {consistency_report.overall_consistency_score:.1f}/10")
+                logger.info(f"  Logo variations: {consistency_report.logo_variations}")
+                
+                if consistency_report.inconsistencies:
+                    logger.info(f"  Inconsistencies found:")
+                    for issue in consistency_report.inconsistencies[:3]:
+                        logger.info(f"    - {issue}")
+            
+            # Categorize content
+            logger.info(f"  Categorizing content...")
+            content_metadata = categorizer.batch_categorize(str(brand_dir))
+            
+            if content_metadata:
+                categories = {}
+                for metadata in content_metadata.values():
+                    cat = metadata.category
+                    categories[cat] = categories.get(cat, 0) + 1
+                
+                logger.info(f"  Content categories:")
+                for cat, count in sorted(categories.items(), key=lambda x: x[1], reverse=True):
+                    logger.info(f"    - {cat}: {count} files")
+            
+            # Store results
+            all_results[brand_name] = {
+                'quality': {fname: vars(m) for fname, m in quality_results.items()},
+                'consistency': vars(consistency_report) if consistency_report else None,
+                'categories': {fname: vars(m) for fname, m in content_metadata.items()}
+            }
+    
+    # Generate report if requested
+    if args.report:
+        report_path = Path(args.report)
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        with open(report_path, 'w') as f:
+            json.dump(all_results, f, indent=2, default=str)
+        
+        logger.info(f"\n✓ Quality report saved to: {report_path}")
+    
+    logger.info(f"\n{'='*60}")
+    logger.info(f"Quality Assessment Complete")
+    logger.info('='*60)
+    
+    return 0
+
+
 def main():
     """Main entry point"""
     args = parse_arguments()
@@ -852,8 +998,8 @@ def main():
             return cmd_download(args, brand_manager, downloader, logger)
         elif args.command == 'extract':
             return cmd_extract(args, brand_manager, extractor, logger)
-        elif args.command == 'media-packs':
-            return cmd_media_packs(args, brand_manager, media_discovery, logger)
+        elif args.command == 'quality-check':
+            return cmd_quality_check(args, brand_manager, logger)
         else:
             logger.error(f"Unknown command: {args.command}")
             return 1
