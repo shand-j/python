@@ -67,6 +67,15 @@ A comprehensive Python application for scraping product data from e-commerce web
   - Build comprehensive product inventories
   - See [Product Discovery Guide](PRODUCT_DISCOVERY.md)
 
+- **Competitor Image Extraction** ✨ NEW
+  - Extract product images from competitor pages
+  - Multi-selector discovery (gallery, thumbnails, zoom, carousel)
+  - Image quality analysis with scoring (0-100)
+  - Lazy loading and srcset support
+  - Placeholder/logo filtering
+  - Smart downloading with duplicate detection
+  - See [Image Extraction Guide](IMAGE_EXTRACTION.md)
+
 ### Advanced Features
 - **Error Handling**: Robust error handling with detailed logging
 - **Rate Limiting**: Configurable delays between requests
@@ -251,6 +260,34 @@ python competitor_manager.py products --site "Vape UK" --category "vape-kits"
 ```
 
 See [Product Discovery Guide](PRODUCT_DISCOVERY.md) for complete documentation.
+
+#### Extract Images from Competitor Products
+
+Extract and download product images with quality analysis:
+
+```bash
+# Extract images for a specific brand (analysis only, no download)
+python competitor_manager.py extract-images --brand "SMOK"
+
+# Extract and download high-quality images
+python competitor_manager.py extract-images --brand "SMOK" --min-quality 70 --save
+
+# Extract from specific site with limits
+python competitor_manager.py extract-images \
+  --site "Vape UK" \
+  --max-products 20 \
+  --images-per-product 5 \
+  --min-quality 60 \
+  --save
+
+# View downloaded images summary
+python competitor_manager.py images
+
+# View for specific brand
+python competitor_manager.py images --brand "SMOK"
+```
+
+See [Image Extraction Guide](IMAGE_EXTRACTION.md) for complete documentation.
 
 ### Advanced Usage
 
