@@ -24,6 +24,9 @@ from .user_agent_rotator import UserAgentRotator
 from .product_discovery import ProductDiscovery, DiscoveredProduct, ProductInventory
 from .image_extractor import ImageExtractor, ExtractedImage
 from .competitor_image_downloader import CompetitorImageDownloader
+from .image_quality_assessor import ImageQualityAssessor, QualityMetrics
+from .brand_consistency_validator import BrandConsistencyValidator, BrandConsistencyReport, ColorPalette
+from .content_categorizer import ContentCategorizer, ContentMetadata
 
 __all__ = [
     'Config',
@@ -59,5 +62,12 @@ __all__ = [
     'ProductInventory',
     'ImageExtractor',
     'ExtractedImage',
-    'CompetitorImageDownloader'
+    'CompetitorImageDownloader',
+    'ImageQualityAssessor',
+    'QualityMetrics',
+    'BrandConsistencyValidator',
+    'BrandConsistencyReport',
+    'ColorPalette',
+    'ContentCategorizer',
+    'ContentMetadata'
 ]
