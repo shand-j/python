@@ -51,6 +51,14 @@ A comprehensive Python application for scraping product data from e-commerce web
   - Duplicate detection and removal
   - See [Download & Extraction Guide](MEDIA_PACK_DOWNLOAD_EXTRACT.md)
 
+- **Competitor Website Configuration** ✨ NEW
+  - Configure major UK vape retailer websites
+  - Robots.txt compliance checking
+  - Site health monitoring with exponential backoff
+  - User agent rotation for respectful scraping
+  - Configurable scraping parameters
+  - See [Competitor Configuration Guide](COMPETITOR_CONFIGURATION.md)
+
 ### Advanced Features
 - **Error Handling**: Robust error handling with detailed logging
 - **Rate Limiting**: Configurable delays between requests
@@ -188,6 +196,31 @@ python brand_manager.py extract --brand "SMOK" --file "downloads/SMOK/media-pack
 ```
 
 See [Download & Extraction Guide](MEDIA_PACK_DOWNLOAD_EXTRACT.md) for complete documentation.
+
+### Competitor Website Configuration
+
+Configure competitor websites for ethical scraping:
+```bash
+# Load competitor sites from file
+python competitor_manager.py load competitor_sites.txt
+
+# Check site health
+python competitor_manager.py health
+
+# Check robots.txt compliance
+python competitor_manager.py robots --site "Vape UK"
+
+# List all sites
+python competitor_manager.py list
+
+# Add new site
+python competitor_manager.py add "Site Name" "https://site.com" --priority high
+
+# Analyze site structure
+python competitor_manager.py analyze --site "Vape UK"
+```
+
+See [Competitor Configuration Guide](COMPETITOR_CONFIGURATION.md) for complete documentation.
 
 ### Advanced Usage
 
