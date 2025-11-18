@@ -38,6 +38,9 @@ output/
 images/
 logs/
 extracted/
+competitor_images/
+data/product_inventory/
+data/history/
 
 # IDE
 .vscode/
