@@ -23,6 +23,9 @@ class ProductTagger:
         self.logger = logger
         self.ollama = ollama_processor
         self.taxonomy = VapeTaxonomy()
+        
+        # Access unified cache through ollama processor
+        self.cache = ollama_processor.cache if ollama_processor and hasattr(ollama_processor, 'cache') else None
     
     def _extract_nicotine_value(self, text: str) -> float:
         """
@@ -288,6 +291,29 @@ class ProductTagger:
         }
         
         self.logger.info(f"Generated {len(unique_tags)} tags for product")
+        
+        # Save final tags to unified cache if available
+        if self.cache and use_ai:
+            # Separate AI and rule-based tags for cache storage
+            rule_tags = []
+            rule_tags.extend(device_type_tags)
+            rule_tags.extend(device_form_tags)
+            for family, tags in flavor_tags.items():
+                rule_tags.extend(tags)
+            rule_tags.extend(nicotine_tags.get('strength', []))
+            rule_tags.extend(nicotine_tags.get('type', []))
+            rule_tags.extend(compliance_tags)
+            
+            ai_tag_list = []
+            if ai_tags:
+                ai_tag_list.extend(ai_tags.get('flavor_tags', []))
+                ai_tag_list.extend(ai_tags.get('device_tags', []))
+                ai_tag_list.extend(ai_tags.get('category_tags', []))
+                ai_tag_list.extend(ai_tags.get('compatibility_tags', []))
+                ai_tag_list.extend(ai_tags.get('cross_compatibility_tags', []))
+            
+            # Save to unified cache
+            self.cache.save_tags(product_data, ai_tag_list, rule_tags)
         
         return enhanced_product
     

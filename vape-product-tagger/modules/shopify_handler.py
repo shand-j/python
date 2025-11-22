@@ -66,16 +66,22 @@ class ShopifyHandler:
                 # Get first row for main product data
                 first_row = group.iloc[0]
                 
+                # Helper function to handle NaN values
+                def safe_str(value):
+                    if pd.isna(value):
+                        return ''
+                    return str(value)
+                
                 product = {
-                    'handle': str(first_row.get('Handle', '')),
-                    'title': str(first_row.get('Title', '')),
-                    'description': str(first_row.get('Body (HTML)', '')),
-                    'vendor': str(first_row.get('Vendor', '')),
-                    'product_category': str(first_row.get('Product Category', '')),
-                    'type': str(first_row.get('Type', '')),
-                    'existing_tags': str(first_row.get('Tags', '')),
-                    'price': str(first_row.get('Variant Price', '')),
-                    'sku': str(first_row.get('Variant SKU', '')),
+                    'handle': safe_str(first_row.get('Handle', '')),
+                    'title': safe_str(first_row.get('Title', '')),
+                    'description': safe_str(first_row.get('Body (HTML)', '')),
+                    'vendor': safe_str(first_row.get('Vendor', '')),
+                    'product_category': safe_str(first_row.get('Product Category', '')),
+                    'type': safe_str(first_row.get('Type', '')),
+                    'existing_tags': safe_str(first_row.get('Tags', '')),
+                    'price': safe_str(first_row.get('Variant Price', '')),
+                    'sku': safe_str(first_row.get('Variant SKU', '')),
                     'images': []
                 }
                 
@@ -235,7 +241,57 @@ class ShopifyHandler:
         with open(output_path, 'w', encoding='utf-8') as jsonfile:
             json.dump(products, jsonfile, indent=2, ensure_ascii=False)
         
-        self.logger.info(f"JSON export completed: {output_path}")
+        self.logger.info(f"CSV export completed: {output_path}")
+        return str(output_path)
+    
+    def export_to_csv_update_mode(self, products: List[Dict], output_path: str = None) -> str:
+        """
+        Export products in update mode - only includes updated fields and preserves identifiers
+        
+        Args:
+            products: List of product dictionaries with original data preserved
+            output_path: Optional output path
+        
+        Returns:
+            str: Path to created CSV file
+        """
+        if output_path is None:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_path = self.config.output_dir / f'shopify_update_products_{timestamp}.csv'
+        
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        self.logger.info(f"Exporting {len(products)} products to update CSV: {output_path}")
+        
+        # For update mode, we only include essential fields that are being updated
+        update_headers = [
+            'Handle',        # Required for identifying existing product
+            'Title',         # May have been enhanced
+            'Tags',          # Main field being updated
+            'Variant SKU'    # Required for variant identification
+        ]
+        
+        with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=update_headers)
+            writer.writeheader()
+            
+            for product in products:
+                # Use original handle and SKU to maintain product identity
+                sku = product.get('sku', '')
+                if sku == 'nan':  # Handle pandas NaN values
+                    sku = ''
+                
+                update_row = {
+                    'Handle': product.get('handle', ''),  # Preserve original handle
+                    'Title': product.get('title', ''),   # May be enhanced
+                    'Tags': self._format_tags(product.get('tags', [])),  # Updated tags
+                    'Variant SKU': sku  # Preserve original SKU
+                }
+                
+                writer.writerow(update_row)
+        
+        self.logger.info(f"Update CSV export completed: {output_path}")
         return str(output_path)
     
     def export_collections(self, collections: List[Dict], output_path: str = None) -> str:

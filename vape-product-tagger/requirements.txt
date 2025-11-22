@@ -8,5 +8,13 @@ python-dotenv>=1.0.0
 # Logging
 colorlog>=6.8.0
 
+# AI integration
+ollama>=0.2.0
+
+# Visualization (optional - for analytics)
+matplotlib>=3.7.0
+seaborn>=0.12.0
+numpy>=1.24.0
+
 # Typing support (for Python < 3.9)
 typing-extensions>=4.8.0

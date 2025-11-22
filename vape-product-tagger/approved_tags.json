@@ -1,0 +1,83 @@
+{
+  "category": [
+    "e-liquid", "disposable", "device", "pod_system", "box_mod", "tank", "coil", "accessory", "pod", "CBD"
+  ],
+  "capacity": {
+    "applies_to": ["tank", "pod"],
+    "tags": [ "2ml","2.5ml", "3ml", "4ml", "5ml", "6ml", "7ml", "8ml", "9ml", "10ml"]
+  },
+  "bottle_size": {
+    "applies_to": ["e-liquid"],
+    "tags": ["5ml", "10ml", "20ml", "30ml", "50ml", "100ml", "shortfill"]
+  },
+  "device_style": {
+    "applies_to": ["device", "pod_system"],
+    "tags": ["pen_style", "pod_style", "box_style", "stick_style", "compact", "mini"]
+  },
+  "nicotine_strength": {
+    "applies_to": ["e-liquid", "disposable", "device", "pod_system"],
+    "tags": ["20mg", "15mg", "10mg", "0mg", "18mg", "12mg", "6mg", "3mg"]
+  },
+  "cbd_strength": {
+    "applies_to": ["CBD"],
+    "tags": ["200mg", "150mg", "100mg", "180mg", "120mg", "600mg", "300mg", "500mg", "1000mg", "1500mg", "250mg", "400mg", "750mg", "2000mg", "Unlimited mg"]
+  },
+  "flavour_type": {
+    "applies_to": ["e-liquid", "disposable"],
+    "tags": [
+      "fruity",
+      "ice",
+      "tobacco",
+      "desserts/bakery",
+      "beverages",
+      "nuts",
+      "spices_&_herbs",
+      "cereal",
+      "unflavoured"
+    ]
+  },
+  "nicotine_type": {
+    "applies_to": ["e-liquid", "disposable", "device", "pod_system"],
+    "tags": ["nic_salt", "freebase_nicotine", "traditional_nicotine"]
+  },
+  "power_supply": {
+    "applies_to": ["device", "pod_system"],
+    "tags": ["rechargeable", "removable_battery"]
+  },
+  "vg_ratio": {
+    "applies_to": ["e-liquid"],
+    "tags": ["0/100", "1/99", "2/98", "3/97", "4/96", "5/95", "6/94", "7/93", "8/92", "9/91", "10/90", "11/89", "12/88", "13/87", "14/86", "15/85", "16/84", "17/83", "18/82", "19/81", "20/80", "21/79", "22/78", "23/77", "24/76", "25/75", "26/74", "27/73", "28/72", "29/71", "30/70", "31/69", "32/68", "33/67", "34/66", "35/65", "36/64", "37/63", "38/62", "39/61", "40/60", "41/59", "42/58", "43/57", "44/56", "45/55", "46/54", "47/53", "48/52", "49/51", "50/50", "51/49", "52/48", "53/47", "54/46", "55/45", "56/44", "57/43", "58/42", "59/41", "60/40", "61/39", "62/38", "63/37", "64/36", "65/35", "66/34", "67/33", "68/32", "69/31", "70/30", "71/29", "72/28", "73/27", "74/26", "75/25", "76/24", "77/23", "78/22", "79/21", "80/20", "81/19", "82/18", "83/17", "84/16", "85/15", "86/14", "87/13", "88/12", "89/11", "90/10", "91/9", "92/8", "93/7", "94/6", "95/5", "96/4", "97/3", "98/2", "99/1", "100/0"]
+  },
+  "vaping_style": {
+    "applies_to": ["device", "pod_system", "e-liquid"],
+    "tags": ["mouth-to-lung", "direct-to-lung", "restricted-direct-to-lung"]
+  },
+  "pod_type": {
+    "applies_to": ["pod"],
+    "tags": ["prefilled_pod", "replacement_pod"]
+  },
+  "accessory_type": {
+    "applies_to": ["accessory"],
+    "tags": ["battery", "charger", "charging_cable", "pouch", "case", "drip_tip", "mouthpiece", "tool_kit", "cotton", "wire", "screwdriver", "battery_wraps" ]
+  },
+  "tank_parts": {
+    "applies_to": ["tank"],
+    "tags": ["glass_tube", "o-rings", "coil_head", "base_plate", "top_cap", "replacement_glass"]
+  },
+  "coil_ohm": {
+    "applies_to": ["coil", "device", "pod_system"],
+    "tags": ["0.1ohm", "0.15ohm", "0.2ohm", "0.3ohm", "0.4ohm", "0.5ohm", "0.6ohm", "0.7ohm", "0.8ohm", "1.0ohm", "1.2ohm", "1.5ohm", "1.8ohm", "2.0ohm" ]
+  },
+  "rules": {
+    "category": "Internal use only; do not output as a tag.",
+    "nicotine_strength": "At most one tag per product; max 20mg; not for CBD/CBG products.",
+    "cbd_strength": "At most one tag per product; only for CBD/CBG products.",
+    "flavour_type": "Only for e-liquids, food or drink and replacement prefilled pod, or prefilled devices; must be prefilled hardware.",
+    "nicotine_type": "Only for prefilled devices, replacement pod, or e-liquids not containing CBD/CBG.",
+    "vg_ratio": "Only for liquids, prefilled devices, or replacement pod.",
+    "coil": "Only for standalone coils; not for coils included in pod or devices.",
+    "brand": "Do not tag; handled in Shopify backend.",
+    "promo": "Do not tag for promo.",
+    "general": "Only use handle, title, description, option1_name, option1_value, option2_name, option2_value, option3_name, option3_value for tag detection; each tag category assigned at most once per product; all tags must be from the approved controlled vocabulary."
+  }
+}

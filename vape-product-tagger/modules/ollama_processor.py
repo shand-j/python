@@ -8,6 +8,7 @@ import re
 from typing import Dict, List, Optional
 import hashlib
 from pathlib import Path
+from .unified_cache import UnifiedCache
 
 
 class OllamaProcessor:
@@ -27,67 +28,43 @@ class OllamaProcessor:
         self.model = config.ollama_model
         self.timeout = config.ollama_timeout
         self.cache_enabled = config.cache_ai_tags
-        self.cache_dir = config.cache_dir if config.cache_ai_tags else None
         
+        # Initialize unified cache system
         if self.cache_enabled:
-            self.cache_dir.mkdir(parents=True, exist_ok=True)
+            cache_file = config.cache_dir / "vape_tags.db"
+            config.cache_dir.mkdir(parents=True, exist_ok=True)
+            self.cache = UnifiedCache(cache_file, logger)
+        else:
+            self.cache = None
     
-    def _get_cache_key(self, product_data: Dict) -> str:
+    def _get_cached_tags(self, product_data: Dict) -> Optional[Dict]:
         """
-        Generate cache key for product data
+        Retrieve cached tags if available
         
         Args:
             product_data: Product information dictionary
         
         Returns:
-            str: MD5 hash for cache key
-        """
-        # Create a stable string representation
-        cache_string = f"{product_data.get('title', '')}_{product_data.get('description', '')}"
-        return hashlib.md5(cache_string.encode()).hexdigest()
-    
-    def _get_cached_tags(self, cache_key: str) -> Optional[Dict]:
-        """
-        Retrieve cached tags if available
-        
-        Args:
-            cache_key: Cache key
-        
-        Returns:
             Optional[Dict]: Cached tags or None
         """
-        if not self.cache_enabled:
+        if not self.cache_enabled or not self.cache:
             return None
         
-        cache_file = self.cache_dir / f"{cache_key}.json"
-        if cache_file.exists():
-            try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    self.logger.debug(f"Cache hit for key: {cache_key}")
-                    return json.load(f)
-            except Exception as e:
-                self.logger.warning(f"Failed to read cache file: {e}")
-        
-        return None
+        return self.cache.get_cached_tags(product_data)
     
-    def _save_cached_tags(self, cache_key: str, tags: Dict):
+    def _save_cached_tags(self, product_data: Dict, ai_tags: List[str], rule_tags: List[str]):
         """
-        Save tags to cache
+        Save tags to unified cache
         
         Args:
-            cache_key: Cache key
-            tags: Tags dictionary
+            product_data: Product information dictionary
+            ai_tags: AI-generated tags
+            rule_tags: Rule-based tags
         """
-        if not self.cache_enabled:
+        if not self.cache_enabled or not self.cache:
             return
         
-        cache_file = self.cache_dir / f"{cache_key}.json"
-        try:
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                json.dump(tags, f, indent=2)
-            self.logger.debug(f"Cached tags for key: {cache_key}")
-        except Exception as e:
-            self.logger.warning(f"Failed to write cache file: {e}")
+        self.cache.save_tags(product_data, ai_tags, rule_tags)
     
     def _clean_json_response(self, response_text: str) -> str:
         """
@@ -165,7 +142,14 @@ class OllamaProcessor:
             payload = {
                 "model": self.model,
                 "prompt": prompt,
-                "stream": False
+                "stream": False,
+                "options": {
+                    "num_predict": 500,     # High limit to account for model's thinking process + response
+                    "temperature": 0.1,     # Lower temperature for consistent responses
+                    "top_p": 0.9,          # Focus on most likely tokens
+                    "repeat_penalty": 1.1,  # Reduce repetition
+                    "stream": False         # Ensure we get complete responses
+                }
             }
             
             self.logger.info(f"Calling Ollama API with model: {self.model} (timeout: {self.timeout}s)")
@@ -218,28 +202,23 @@ class OllamaProcessor:
             return []
         
         # Check cache first
-        cache_key = self._get_cache_key(product_data)
-        cached = self._get_cached_tags(cache_key)
-        if cached and 'flavor_tags' in cached:
-            self.logger.debug("Using cached flavor tags")
-            return cached['flavor_tags']
+        cached = self._get_cached_tags(product_data)
+        if cached and 'ai_tags' in cached:
+            # Look for flavor tags in cached AI tags
+            ai_tags = cached['ai_tags']
+            flavor_tags = [tag for tag in ai_tags if any(flavor in tag.lower() for flavor in ['fruit', 'dessert', 'menthol', 'tobacco', 'beverage'])]
+            if flavor_tags:
+                self.logger.debug("Using cached flavor tags")
+                return flavor_tags
         
-        prompt = f"""Analyze this vaping product and identify the flavor profile.
+        prompt = f"""Product: {title}
 
-Product Title: {title}
-Description: {description}
+Identify flavors from: Fruit, Dessert, Menthol, Tobacco, Beverage
 
-Based on the product information, identify the flavor tags from these categories:
-- Fruit (Citrus, Berry, Tropical, Stone Fruit)
-- Dessert (Custard, Bakery, Cream, Pudding)
-- Menthol (Cool, Mint, Arctic, Herbal Mint)
-- Tobacco (Classic, Sweet, Blend, Dark)
-- Beverage (Coffee, Soda, Cocktail, Tea)
+CRITICAL: Output ONLY a JSON array, no other text or formatting.
+Example: ["Dessert", "Beverage"]
 
-Return ONLY a valid JSON array of strings, no markdown formatting, no explanations.
-Example format: ["Fruit", "Tropical", "Mango", "Ice", "Cool"]
-
-Tags:"""
+JSON:"""
         
         response = self._call_ollama(prompt)
         if not response:
@@ -258,9 +237,7 @@ Tags:"""
                 # Filter and clean tags
                 valid_tags = [tag.strip() for tag in flavor_tags if isinstance(tag, str) and tag.strip()]
                 
-                # Cache the result
-                if self.cache_enabled:
-                    self._save_cached_tags(cache_key, {'flavor_tags': valid_tags})
+                # Note: Tags will be cached at the product level by main processor
                 
                 return valid_tags
             else:
@@ -287,28 +264,21 @@ Tags:"""
         if not title and not description:
             return []
         
-        # Check cache
-        cache_key = self._get_cache_key(product_data)
-        cached = self._get_cached_tags(cache_key)
-        if cached and 'device_tags' in cached:
-            self.logger.debug("Using cached device tags")
-            return cached['device_tags']
+        # Check cache first (handled at comprehensive level)
+        cached = self._get_cached_tags(product_data)
+        if cached:
+            return []  # Will be handled by comprehensive cache
         
-        prompt = f"""Analyze this vaping product and identify the device type, form factor, and usage level.
+        prompt = f"""Product: {title}
 
-Product Title: {title}
-Description: {description}
+Device types: Disposable, Pod System, Box Mod, Pen Style, AIO
+Forms: Compact, Pen, Box, Tube, Stick
+Levels: Beginner, Intermediate, Advanced
 
-Device Types: Disposable, Pod System, Box Mod, Pen Style, AIO (All-in-One), Mechanical Mod
-Form Factors: Compact, Pen, Box, Tube, Stick, Mini
-Usage Levels: Beginner, Intermediate, Advanced, Professional
-Power Types: Internal Battery, Removable Battery, USB Rechargeable, Non-Rechargeable
-Features: Variable Wattage, Temperature Control, Sub-Ohm, MTL (Mouth-to-Lung), DTL (Direct-to-Lung)
+CRITICAL: Output ONLY a JSON array, no other text.
+Example: ["Pod System", "Compact"]
 
-Return ONLY a valid JSON array of strings, no markdown formatting, no explanations.
-Example format: ["Pod System", "Compact", "Beginner", "USB Rechargeable", "MTL"]
-
-Tags:"""
+JSON:"""
         
         response = self._call_ollama(prompt)
         if not response:
@@ -326,11 +296,7 @@ Tags:"""
                 # Filter and clean tags
                 valid_tags = [tag.strip() for tag in device_tags if isinstance(tag, str) and tag.strip()]
                 
-                # Update cache with device tags
-                if self.cache_enabled:
-                    existing_cache = self._get_cached_tags(cache_key) or {}
-                    existing_cache['device_tags'] = valid_tags
-                    self._save_cached_tags(cache_key, existing_cache)
+                # Note: Tags will be cached at the comprehensive level
                 
                 return valid_tags
             else:
@@ -357,37 +323,20 @@ Tags:"""
         if not title and not description:
             return []
         
-        # Check cache
-        cache_key = self._get_cache_key(product_data)
-        cached = self._get_cached_tags(cache_key)
-        if cached and 'category_tags' in cached:
-            self.logger.debug("Using cached category tags")
-            return cached['category_tags']
+        # Check cache first (handled at comprehensive level)
+        cached = self._get_cached_tags(product_data)
+        if cached:
+            return []  # Will be handled by comprehensive cache
         
-        prompt = f"""Analyze this vaping product and identify the main product category for e-commerce menu navigation.
+        prompt = f"""Product: {title}
 
-Product Title: {title}
-Description: {description}
+Categories: E-Liquid, Devices, Accessories, Consumables
+Sub-types: Shortfill, Pod System, Replacement Coil, etc.
 
-Primary Categories:
-- E-Liquid (bottled vape juice, shortfills, nicotine salts)
-- Devices (mods, pod systems, disposables, starter kits)
-- Accessories (chargers, cases, tools, stands, drip tips)
-- Consumables (coils, pods, cartridges, atomizers)
+CRITICAL: Output ONLY a JSON array, no other text.
+Example: ["E-Liquid", "Shortfill"]
 
-Sub-Categories for E-Liquid:
-- Shortfill, Longfill, Nic Salt, Freebase, TPD Compliant
-
-Sub-Categories for Devices:
-- Starter Kit, Advanced Kit, Pod System, Disposable, Mod Only
-
-Sub-Categories for Consumables:
-- Replacement Coil, Replacement Pod, Prefilled Pod, Cartridge
-
-Return ONLY a valid JSON array of strings, no markdown formatting, no explanations.
-Example format: ["E-Liquid", "Shortfill", "TPD Compliant"]
-
-Tags:"""
+JSON:"""
         
         response = self._call_ollama(prompt)
         if not response:
@@ -400,11 +349,7 @@ Tags:"""
             if isinstance(category_tags, list):
                 valid_tags = [tag.strip() for tag in category_tags if isinstance(tag, str) and tag.strip()]
                 
-                # Update cache
-                if self.cache_enabled:
-                    existing_cache = self._get_cached_tags(cache_key) or {}
-                    existing_cache['category_tags'] = valid_tags
-                    self._save_cached_tags(cache_key, existing_cache)
+                # Note: Tags will be cached at the comprehensive level
                 
                 return valid_tags
             else:
@@ -431,51 +376,21 @@ Tags:"""
         if not title and not description:
             return []
         
-        # Check cache
-        cache_key = self._get_cache_key(product_data)
-        cached = self._get_cached_tags(cache_key)
-        if cached and 'compatibility_tags' in cached:
-            self.logger.debug("Using cached compatibility tags")
-            return cached['compatibility_tags']
+        # Check cache first (handled at comprehensive level)
+        cached = self._get_cached_tags(product_data)
+        if cached:
+            return []  # Will be handled by comprehensive cache
         
-        prompt = f"""Analyze this vaping product and identify brand, device range, and cross-compatibility specifications.
+        prompt = f"""Find compatibility for vape product: {title}
 
-Product Title: {title}
-Description: {description}
+Identify: Brand, device series, coil type, battery, capacity, connection.
+Brands: SMOK, Aspire, Vaporesso, GeekVape, Uwell, Voopoo, Innokin
+Series: Nord, RPM, XROS, Caliburn, Drag, Aegis, GTX, PnP, TFV
 
-IMPORTANT: Identify specific device compatibility and ranges:
+CRITICAL: Output ONLY a JSON array, no other text.
+Example: ["Brand", "Series", "Specs"]
 
-Brand & Device Ranges:
-- SMOK: Nord, RPM, TFV, Novo, Infinix, Stick, Morph, G-Priv
-- Aspire: Nautilus, Cleito, Atlantis, PockeX, Breeze, K-Lite
-- Vaporesso: XROS, Target, Gen, Luxe, Sky Solo, GTX, NRG
-- GeekVape: Aegis, Zeus, Cerberus, Flint, Wenax, H45
-- Uwell: Caliburn, Crown, Nunchaku, Whirl, Valyrian
-- Voopoo: Drag, Vinci, Doric, Argus, PnP
-- Innokin: Zlide, T18, T20S, Endura, Adept, Go S
-
-Cross-Compatibility Identification:
-- Coil Series (e.g., "GTX Coils", "PnP Coils", "Nord Coils")
-- Pod Compatibility (e.g., "XROS Pods", "Caliburn Pods")
-- Tank Series (e.g., "TFV16", "Crown 5", "Zeus Tank")
-- Universal Standards ("510 Thread", "Magnetic Connection")
-
-Technical Specifications:
-- Battery: mAh capacity, removable/internal
-- Capacity: ml for tanks/pods
-- Resistance: ohm ranges for coils
-- Connection: USB-C, Type-C, Micro-USB
-- Power: Wattage range, voltage output
-
-E-liquid Specs (if applicable):
-- Nicotine: 0mg, 3mg, 6mg, 12mg, 18mg, 20mg
-- VG/PG: 50/50, 70/30, Max VG, High VG
-- Size: 10ml, 30ml, 50ml, 100ml, 120ml
-
-Return ONLY a valid JSON array of strings focusing on specific compatibility.
-Example format: ["SMOK", "Nord Series", "Nord Coils", "RPM Coils", "510 Thread", "2000mAh", "USB-C"]
-
-Tags:"""
+JSON:"""
         
         response = self._call_ollama(prompt)
         if not response:
@@ -488,11 +403,7 @@ Tags:"""
             if isinstance(compatibility_tags, list):
                 valid_tags = [tag.strip() for tag in compatibility_tags if isinstance(tag, str) and tag.strip()]
                 
-                # Update cache
-                if self.cache_enabled:
-                    existing_cache = self._get_cached_tags(cache_key) or {}
-                    existing_cache['compatibility_tags'] = valid_tags
-                    self._save_cached_tags(cache_key, existing_cache)
+                # Note: Tags will be cached at the comprehensive level
                 
                 return valid_tags
             else:
@@ -519,40 +430,22 @@ Tags:"""
         if not title and not description:
             return []
         
-        # Check cache
-        cache_key = self._get_cache_key(product_data)
-        cached = self._get_cached_tags(cache_key)
-        if cached and 'cross_compatibility_tags' in cached:
-            self.logger.debug("Using cached cross-compatibility tags")
-            return cached['cross_compatibility_tags']
+        # Check cache first (handled at comprehensive level)
+        cached = self._get_cached_tags(product_data)
+        if cached:
+            return []  # Will be handled by comprehensive cache
         
-        prompt = f"""Analyze this vaping product and identify what OTHER products it's compatible with for cross-selling.
+        prompt = f"""Find compatible products for: {title}
 
-Product Title: {title}
-Description: {description}
+Coils → tanks/devices that use them
+Pods → devices that use them  
+Devices → coils/pods/tanks that work with them
+Tanks → coils that fit them
 
-If this is a COIL/ATOMIZER, identify compatible:
-- Tank models, Pod systems, Devices that use these coils
-- Example: "TFV16 Coils" → compatible with "TFV16 Tank", "SMOK Morph", "SMOK G-Priv 3"
+CRITICAL: Output ONLY a JSON array, no other text.
+Example: ["Compatible Product 1", "Compatible Product 2"]
 
-If this is a POD/CARTRIDGE, identify compatible:
-- Device models that use these pods
-- Example: "XROS Pods" → compatible with "XROS", "XROS 2", "XROS Mini"
-
-If this is a DEVICE/KIT, identify compatible:
-- Coil series, Pod types, Tanks that work with this device
-- Example: "SMOK Nord 4" → compatible with "Nord Coils", "RPM Coils", "Nord Pods"
-
-If this is a TANK, identify compatible:
-- Coil series, Device compatibility (510 thread devices)
-- Example: "TFV16 Tank" → compatible with "TFV16 Coils", "510 Thread Devices"
-
-Focus on SPECIFIC model compatibility for cross-selling opportunities.
-
-Return ONLY a valid JSON array of compatible product names/series.
-Example format: ["TFV16 Tank", "SMOK Morph 219", "SMOK G-Priv 3", "TFV16 Mesh Coils"]
-
-Tags:"""
+JSON:"""
         
         response = self._call_ollama(prompt)
         if not response:
@@ -565,11 +458,7 @@ Tags:"""
             if isinstance(cross_compatibility_tags, list):
                 valid_tags = [tag.strip() for tag in cross_compatibility_tags if isinstance(tag, str) and tag.strip()]
                 
-                # Update cache
-                if self.cache_enabled:
-                    existing_cache = self._get_cached_tags(cache_key) or {}
-                    existing_cache['cross_compatibility_tags'] = valid_tags
-                    self._save_cached_tags(cache_key, existing_cache)
+                # Note: Tags will be cached at the comprehensive level
                 
                 return valid_tags
             else:
@@ -592,6 +481,21 @@ Tags:"""
         """
         self.logger.info(f"Generating AI tags for: {product_data.get('title', 'Unknown')}")
         
+        # Check unified cache first
+        cached = self._get_cached_tags(product_data)
+        if cached and 'ai_tags' in cached:
+            self.logger.debug("Using cached AI tags")
+            # Convert flat list back to categorized format
+            ai_tags = cached['ai_tags']
+            return {
+                'category_tags': [tag for tag in ai_tags if any(cat in tag.lower() for cat in ['disposable', 'rechargeable', 'pod', 'cartridge'])],
+                'flavor_tags': [tag for tag in ai_tags if any(flavor in tag.lower() for flavor in ['fruit', 'dessert', 'menthol', 'tobacco', 'beverage', 'ice', 'cream', 'vanilla', 'chocolate'])],
+                'device_tags': [tag for tag in ai_tags if any(device in tag.lower() for device in ['pen', 'stick', 'pod', 'mod', 'tank'])],
+                'compatibility_tags': [tag for tag in ai_tags if any(comp in tag.lower() for comp in ['510', 'threading', 'magnetic'])],
+                'cross_compatibility_tags': [tag for tag in ai_tags if any(cross in tag.lower() for cross in ['universal', 'compatible', 'interchangeable'])]
+            }
+        
+        # Generate new tags if not cached
         tags = {
             'category_tags': self.infer_product_category(product_data),
             'flavor_tags': self.infer_flavor_tags(product_data),
@@ -599,5 +503,14 @@ Tags:"""
             'compatibility_tags': self.infer_compatibility_tags(product_data),
             'cross_compatibility_tags': self.infer_cross_compatibility(product_data)
         }
+        
+        # Save to unified cache (flatten all AI tags)
+        if self.cache_enabled and self.cache:
+            all_ai_tags = []
+            for category_tags in tags.values():
+                all_ai_tags.extend(category_tags)
+            
+            # Save to unified cache (rule tags empty since this is AI-only)
+            self._save_cached_tags(product_data, all_ai_tags, [])
         
         return tags
