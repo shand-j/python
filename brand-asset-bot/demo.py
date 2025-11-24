@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Demo Script - Product Scraper
-Demonstrates the key features without requiring actual URLs
+Demo Script - Brand Asset Bot
+Demonstrates the key features for brand asset discovery
 """
 import sys
 from pathlib import Path
@@ -9,25 +9,23 @@ from pathlib import Path
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from modules import Config, setup_logger, ProductScraper
-from modules.shopify_exporter import ShopifyExporter
+from modules import Config, setup_logger, BrandAssetScraper, BrandManager
 
 
-def demo_without_web_scraping():
+def demo_brand_asset_discovery():
     """
-    Demonstrate the product scraper capabilities using mock data
-    This shows what the scraper does without requiring actual URLs
+    Demonstrate brand asset discovery capabilities
     """
     print("=" * 80)
-    print("Product Scraper Demo")
+    print("Brand Asset Bot Demo")
     print("=" * 80)
     print()
     
     # Initialize configuration
     print("1. Loading configuration...")
     config = Config()
-    print(f"   ✓ Image max size: {config.image_max_width}x{config.image_max_height}")
-    print(f"   ✓ Request delay: {config.request_delay}s")
+    print(f"   ✓ Download directory: {config.download_dir}")
+    print(f"   ✓ Extracted directory: {config.extracted_dir}")
     print(f"   ✓ Output directory: {config.output_dir}")
     print()
     
@@ -38,135 +36,106 @@ def demo_without_web_scraping():
     print("   ✓ Logger initialized")
     print()
     
-    # Create mock product data (simulates scraped data)
-    print("3. Simulating scraped product data...")
-    mock_products = [
-        {
-            'title': 'Premium Leather Wallet',
-            'enhanced_description': (
-                '<p>Discover the perfect blend of style and functionality with our '
-                'Premium Leather Wallet. Crafted from genuine full-grain leather, '
-                'this wallet features multiple card slots, a bill compartment, and '
-                'a sleek, minimalist design.</p>\n'
-                '<p>Key Features:</p>\n'
-                '<ul>'
-                '<li>100% genuine leather construction</li>'
-                '<li>8 card slots plus 2 hidden compartments</li>'
-                '<li>RFID protection for security</li>'
-                '<li>Slim profile fits comfortably in pocket</li>'
-                '</ul>'
-            ),
-            'original_description': 'A high-quality leather wallet with card slots.',
-            'price': '49.99',
-            'tags': ['wallet', 'leather', 'premium', 'accessories', 'mens', 'gift'],
-            'processed_images': ['wallet_image1.jpg', 'wallet_image2.jpg'],
-            'summary': 'Premium leather wallet with RFID protection and multiple compartments',
-            'seo_title': 'Premium Leather Wallet - RFID Protected',
-            'seo_description': 'Genuine leather wallet with 8 card slots and RFID protection',
-            'vendor': 'Premium Goods Co',
-            'type': 'Accessories',
-            'sku': 'WALLET-001',
-            'source_url': 'https://example.com/products/leather-wallet'
+    # Initialize brand manager
+    print("3. Setting up brand management...")
+    brand_manager = BrandManager(logger=logger)
+    print("   ✓ Brand manager initialized")
+    print()
+    
+    # Create mock brand data
+    print("4. Simulating brand registry...")
+    from modules.brand_manager import Brand
+    mock_brand = Brand(
+        name="Demo Vape Brand",
+        website="https://demo-vape-brand.com",
+        priority="high"
+    )
+    print(f"   ✓ Created brand: {mock_brand.name}")
+    print(f"   ✓ Website: {mock_brand.website}")
+    print(f"   ✓ Priority: {mock_brand.priority}")
+    print()
+    
+    # Initialize brand asset scraper
+    print("5. Initializing brand asset scraper...")
+    scraper = BrandAssetScraper(config, logger)
+    print("   ✓ Brand asset scraper ready")
+    print()
+    
+    # Simulate asset discovery results
+    print("6. Simulating asset discovery results...")
+    mock_results = {
+        'brand': 'Demo Vape Brand',
+        'timestamp': '2025-11-22T12:00:00',
+        'official_assets': [
+            {
+                'asset_id': 'demo_brand_official_hero_001',
+                'source': 'official_brand',
+                'category': 'marketing',
+                'tags': ['hero-image', 'banner', 'lifestyle'],
+                'quality_score': 9.2,
+                'dimensions': (1920, 1080),
+                'file_size': 2457600
+            },
+            {
+                'asset_id': 'demo_brand_official_pack_002',
+                'source': 'official_brand',
+                'category': 'branding',
+                'tags': ['logo', 'brand-identity'],
+                'quality_score': 9.8,
+                'dimensions': (1200, 1200),
+                'file_size': 512000
+            }
+        ],
+        'competitor_assets': [
+            {
+                'asset_id': 'competitor_marketing_003',
+                'source': 'competitor',
+                'category': 'marketing',
+                'tags': ['promo-banner', 'campaign'],
+                'quality_score': 8.5,
+                'dimensions': (1600, 900),
+                'file_size': 1843200
+            }
+        ],
+        'catalog_stats': {
+            'total_official': 2,
+            'total_competitor': 1,
+            'total_assets': 3
         },
-        {
-            'title': 'Stainless Steel Water Bottle',
-            'enhanced_description': (
-                '<p>Stay hydrated in style with our Stainless Steel Water Bottle. '
-                'This eco-friendly, reusable bottle keeps drinks cold for 24 hours '
-                'and hot for 12 hours, making it perfect for any adventure.</p>\n'
-                '<p>Specifications:</p>\n'
-                '<ul>'
-                '<li>Double-wall vacuum insulation</li>'
-                '<li>BPA-free materials</li>'
-                '<li>Leak-proof lid design</li>'
-                '<li>Available in 20oz and 32oz sizes</li>'
-                '</ul>'
-            ),
-            'original_description': 'Insulated water bottle that keeps drinks cold.',
-            'price': '29.99',
-            'tags': ['water bottle', 'insulated', 'stainless steel', 'eco-friendly', 'sports'],
-            'processed_images': ['bottle_image1.jpg', 'bottle_image2.jpg', 'bottle_image3.jpg'],
-            'summary': 'Insulated stainless steel bottle for hot and cold beverages',
-            'seo_title': 'Insulated Stainless Steel Water Bottle',
-            'seo_description': 'Keep drinks cold for 24h or hot for 12h with our vacuum-insulated bottle',
-            'vendor': 'EcoLife',
-            'type': 'Drinkware',
-            'sku': 'BOTTLE-002',
-            'source_url': 'https://example.com/products/water-bottle'
-        }
-    ]
+        'errors': []
+    }
     
-    print(f"   ✓ Created {len(mock_products)} mock products")
-    for product in mock_products:
-        print(f"     - {product['title']}: ${product['price']}")
+    print(f"   ✓ Official assets discovered: {len(mock_results['official_assets'])}")
+    print(f"   ✓ Competitor assets discovered: {len(mock_results['competitor_assets'])}")
+    print(f"   ✓ Total assets: {mock_results['catalog_stats']['total_assets']}")
     print()
     
-    # Export to CSV
-    print("4. Exporting to Shopify CSV...")
-    exporter = ShopifyExporter(config, logger)
+    # Show asset details
+    print("7. Asset Details:")
+    for asset in mock_results['official_assets'] + mock_results['competitor_assets']:
+        print(f"   • {asset['asset_id']}: {asset['category']} ({asset['quality_score']}/10)")
+        print(f"     Tags: {', '.join(asset['tags'])}")
+        print(f"     Dimensions: {asset['dimensions'][0]}x{asset['dimensions'][1]}")
+        print()
     
-    csv_path = config.output_dir / 'demo_products.csv'
-    result = exporter.export_to_csv(mock_products, csv_path)
-    print(f"   ✓ CSV exported to: {result}")
-    
-    # Display CSV preview
-    with open(result, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
-        print(f"   ✓ Generated {len(lines)} lines (1 header + {len(lines)-1} data rows)")
+    print("8. Exporting catalog...")
+    # In a real scenario, this would create an actual file
+    print("   ✓ Catalog exported to: output/brand_assets_Demo_Vape_Brand_20251122_120000.json")
     print()
     
-    # Export to JSON
-    print("5. Exporting to JSON (alternative format)...")
-    json_path = config.output_dir / 'demo_products.json'
-    result = exporter.export_to_json(mock_products, json_path)
-    print(f"   ✓ JSON exported to: {result}")
-    print()
-    
-    # Display what would happen with GPT (without API key)
-    print("6. AI Features Demo (fallback mode - no API key)...")
-    from modules.gpt_processor import GPTProcessor
-    gpt = GPTProcessor(config, logger)
-    
-    sample_tags = gpt.generate_tags(
-        "Premium Leather Wallet",
-        "A high-quality leather wallet with card slots"
-    )
-    print(f"   ✓ Generated tags (fallback): {sample_tags}")
-    
-    sample_summary = gpt.generate_summary(
-        "This is a long product description that needs to be summarized. " * 10,
-        max_words=15
-    )
-    print(f"   ✓ Generated summary (fallback): {sample_summary[:80]}...")
-    print()
-    
-    # Summary
     print("=" * 80)
-    print("Demo Complete!")
+    print("Demo completed successfully!")
+    print("The Brand Asset Bot can discover marketing imagery from:")
+    print("• Official brand media packs (ZIP/RAR archives)")
+    print("• Hero banners and promotional content")
+    print("• Competitor websites with brand products")
+    print("• Quality assessment and content categorization")
     print("=" * 80)
-    print()
-    print("What this demo showed:")
-    print("  ✓ Configuration loading and validation")
-    print("  ✓ Structured logging setup")
-    print("  ✓ Product data structure (from web scraping)")
-    print("  ✓ Shopify CSV export with complete schema")
-    print("  ✓ JSON export alternative")
-    print("  ✓ AI features (fallback mode without API key)")
-    print()
-    print("To scrape real products:")
-    print("  python main.py https://example.com/product-url")
-    print()
-    print("For full AI features:")
-    print("  1. Add OPENAI_API_KEY to config.env")
-    print("  2. Run: python main.py https://example.com/product-url")
-    print()
-    print(f"Output files created in: {config.output_dir}/")
-    print()
 
 
 if __name__ == '__main__':
     try:
-        demo_without_web_scraping()
+        demo_brand_asset_discovery()
     except Exception as e:
         print(f"\n❌ Demo failed: {e}")
         import traceback

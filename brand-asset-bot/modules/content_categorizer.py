@@ -96,6 +96,8 @@ class ContentCategorizer:
             dimensions = (0, 0)
             if content_type.startswith('image'):
                 try:
+                    # Disable PIL size limits to handle large images
+                    Image.MAX_IMAGE_PIXELS = None
                     img = Image.open(file_path)
                     dimensions = img.size
                 except:

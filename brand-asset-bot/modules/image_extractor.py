@@ -38,10 +38,38 @@ class ExtractedImage:
 
 
 class ImageExtractor:
-    """Extracts and analyzes product images from competitor websites"""
+    """Extracts and analyzes marketing images from competitor websites"""
     
     # CSS selectors for different image types
     IMAGE_SELECTORS = {
+        'hero': [
+            '.hero-banner img',
+            '.hero-image img',
+            '.hero-section img',
+            '.main-banner img',
+            '.featured-banner img',
+            '.homepage-hero img',
+            '.hero-slider img',
+            '[data-hero] img',
+            '.hero-container img',
+        ],
+        'marketing': [
+            '.promo-banner img',
+            '.promotion img',
+            '.marketing-banner img',
+            '.campaign img',
+            '.advertisement img',
+            '.promo-section img',
+            '.marketing-content img',
+            '.featured-promo img',
+        ],
+        'branding': [
+            '.brand-banner img',
+            '.brand-hero img',
+            '.brand-promotion img',
+            '.brand-campaign img',
+            '.brand-marketing img',
+        ],
         'gallery': [
             '.product-gallery img',
             '.product-image-gallery img',
@@ -230,7 +258,7 @@ class ImageExtractor:
     
     def _get_priority_for_type(self, image_type: str) -> str:
         """Get priority level for image type"""
-        high_priority = ['gallery', 'zoom', 'carousel']
+        high_priority = ['hero', 'marketing', 'branding', 'gallery', 'zoom', 'carousel']
         medium_priority = ['thumbnails', 'alternative']
         
         if image_type in high_priority:
@@ -278,6 +306,8 @@ class ImageExtractor:
                 
                 # Load image and get dimensions
                 img_data = BytesIO(response.content)
+                # Disable PIL size limits to handle large images
+                Image.MAX_IMAGE_PIXELS = None
                 with Image.open(img_data) as img:
                     image.width, image.height = img.size
                     

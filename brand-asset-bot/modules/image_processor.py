@@ -110,6 +110,8 @@ class ImageProcessor:
             
             self.logger.info(f"Resizing image: {image_path}")
             
+            # Disable PIL size limits to handle large images
+            Image.MAX_IMAGE_PIXELS = None
             with Image.open(image_path) as img:
                 # Convert to RGB if necessary (handles RGBA, P, etc.)
                 if img.mode not in ('RGB', 'L'):

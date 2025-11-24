@@ -114,6 +114,12 @@ class MediaPackDownloader:
         if self.logger:
             self.logger.info(f"Downloading media pack for {brand_name}: {url}")
         
+        # Handle Dropbox shared links - convert to direct download
+        if 'dropbox.com' in url and 'dl=0' in url:
+            url = url.replace('dl=0', 'dl=1')
+            if self.logger:
+                self.logger.info(f"Converted Dropbox link to direct download: {url}")
+        
         # Create brand-specific directory
         brand_dir = self.download_dir / brand_name / "media-packs"
         brand_dir.mkdir(parents=True, exist_ok=True)

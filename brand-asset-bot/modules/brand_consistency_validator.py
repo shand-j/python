@@ -148,6 +148,8 @@ class BrandConsistencyValidator:
         
         for image_path in images[:10]:  # Sample first 10 images
             try:
+                # Disable PIL size limits to handle large images
+                Image.MAX_IMAGE_PIXELS = None
                 img = Image.open(image_path)
                 img = img.convert('RGB')
                 img = img.resize((150, 150))  # Reduce size for faster processing

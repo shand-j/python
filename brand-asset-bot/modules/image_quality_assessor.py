@@ -75,6 +75,9 @@ class ImageQualityAssessor:
                 self.logger.error(f"Image not found: {image_path}")
                 return None
             
+            # Disable PIL size limits to handle large images
+            Image.MAX_IMAGE_PIXELS = None
+            
             # Open image
             img = Image.open(image_path)
             width, height = img.size

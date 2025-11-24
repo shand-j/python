@@ -8,6 +8,7 @@ from .image_processor import ImageProcessor
 from .gpt_processor import GPTProcessor
 from .shopify_exporter import ShopifyExporter
 from .product_scraper import ProductScraper
+from .brand_asset_scraper import BrandAssetScraper
 from .brand_manager import Brand, BrandManager, Priority, BrandStatus
 from .brand_validator import BrandValidator
 from .media_pack_discovery import MediaPackDiscovery, MediaPackInfo
@@ -40,6 +41,7 @@ __all__ = [
     'GPTProcessor',
     'ShopifyExporter',
     'ProductScraper',
+    'BrandAssetScraper',
     'Brand',
     'BrandManager',
     'BrandValidator',

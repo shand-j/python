@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get started with the Product Scraper in 5 minutes!
+Get started with the Brand Asset Bot in 5 minutes!
 
 ## Step 1: Setup Environment
 
@@ -32,68 +32,61 @@ pip install -r requirements.txt
 
 ## Step 2: Configure (Optional)
 
-If you want to use AI features (description enhancement and tag generation):
-
-1. Copy the example config:
+1. Copy configuration files:
    ```bash
    cp config.env.example config.env
+   cp brands.txt.example brands.txt
    ```
 
-2. Edit `config.env` and add your OpenAI API key:
+2. Edit `config.env` and add your OpenAI API key (optional):
    ```env
    OPENAI_API_KEY=your_key_here
    ```
 
-**Note:** The scraper works without an API key, but AI features will be disabled.
+3. Edit `brands.txt` to customize brands (optional - defaults included)
 
-## Step 3: Run Your First Scrape
+**Note:** The bot works without configuration, but AI features require an OpenAI API key.
 
-### Quick test (no AI features):
+## Step 3: Run Your First Brand Asset Discovery
+
+### Basic brand asset discovery:
 ```bash
-python main.py --no-enhance --no-tags --no-images https://example.com/product
+python main.py --mode brand-asset --brand SMOK
 ```
 
-### Full scrape with all features:
+### Full discovery with competitors:
 ```bash
-python main.py https://example.com/product-url
+python main.py --mode brand-asset --brand SMOK --include-competitors
 ```
 
-### Scrape multiple products:
+### Legacy product scraping:
 ```bash
-# Create a file with URLs (one per line)
-echo "https://example.com/product1" > my_urls.txt
-echo "https://example.com/product2" >> my_urls.txt
-
-# Scrape all URLs
-python main.py --file my_urls.txt
+python main.py --mode product https://example.com/product-url
 ```
 
 ## Step 4: Find Your Results
 
-After scraping, you'll find:
+After discovery, you'll find:
 
-- **CSV file**: `output/shopify_products_YYYYMMDD_HHMMSS.csv`
-- **Images**: `images/Product_Name/`
-- **Logs**: `logs/scraper_YYYYMMDD_HHMMSS.log`
+- **Brand catalog**: `output/brand_assets_BRAND_YYYYMMDD_HHMMSS.json`
+- **Downloaded media packs**: `downloads/BRAND/`
+- **Extracted assets**: `extracted/BRAND/`
+- **Logs**: `logs/brand_asset_bot_YYYYMMDD_HHMMSS.log`
 
 ## Common Options
 
 ```bash
-# Export to JSON instead of CSV
-python main.py --format json URL
+# Brand asset discovery
+python main.py --mode brand-asset --brand BRAND_NAME
 
-# Skip image download (faster)
-python main.py --no-images URL
-
-# Skip AI enhancement (no API costs)
-python main.py --no-enhance --no-tags URL
+# Include competitor sources
+python main.py --mode brand-asset --brand BRAND_NAME --include-competitors
 
 # Verbose logging for debugging
-python main.py --verbose URL
+python main.py --mode brand-asset --brand BRAND_NAME --verbose
 
-# Custom output file
-python main.py --output my_products.csv URL
-```
+# Legacy product scraping
+python main.py --mode product --format json URL
 
 ## Troubleshooting
 

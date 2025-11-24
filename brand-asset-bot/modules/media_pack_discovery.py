@@ -43,6 +43,8 @@ class MediaPackDiscovery:
         '/media-packs',
         '/mediapack',
         '/mediapacks',
+        '/media-kit',
+        '/media-kits',
         '/press',
         '/press-kit',
         '/press-kits',
@@ -67,6 +69,9 @@ class MediaPackDiscovery:
         '.7z': {'category': 'archive', 'priority': 1, 'content_type': 'Compressed archive'},
         '.tar.gz': {'category': 'archive', 'priority': 1, 'content_type': 'Compressed archive'},
         '.tgz': {'category': 'archive', 'priority': 1, 'content_type': 'Compressed archive'},
+        
+        # Cloud storage shared links
+        'dropbox_shared': {'category': 'archive', 'priority': 1, 'content_type': 'Dropbox shared folder'},
         
         # Documentation
         '.pdf': {'category': 'document', 'priority': 2, 'content_type': 'Documentation'},
@@ -95,13 +100,14 @@ class MediaPackDiscovery:
         self.session = requests.Session()
         self.timeout = getattr(config, 'request_timeout', 30)
     
-    def discover_media_packs(self, brand_name: str, website: str) -> List[MediaPackInfo]:
+    def discover_media_packs(self, brand_name: str, website: str, uk_only: bool = False) -> List[MediaPackInfo]:
         """
         Discover media packs for a brand
         
         Args:
             brand_name: Brand name
             website: Brand website URL
+            uk_only: If True, only return UK-specific media packs
         
         Returns:
             List of discovered media packs
@@ -118,18 +124,19 @@ class MediaPackDiscovery:
         # 1. Check standard media pack paths
         for path in self.MEDIA_PACK_PATHS:
             url = urljoin(base_url, path)
-            packs = self._scan_url_for_media(url, base_url, discovered_urls)
+            packs = self._scan_url_for_media(url, base_url, discovered_urls, uk_only)
             media_packs.extend(packs)
         
         # 2. Scan homepage for media pack links
-        homepage_packs = self._scan_homepage(base_url, discovered_urls)
+        homepage_packs = self._scan_homepage(base_url, discovered_urls, uk_only)
         media_packs.extend(homepage_packs)
         
         # 3. Search for alternative domains
-        alt_domains = self._discover_alternative_domains(brand_name, base_url)
-        for alt_domain in alt_domains:
-            alt_packs = self._scan_url_for_media(alt_domain, alt_domain, discovered_urls)
-            media_packs.extend(alt_packs)
+        # Temporarily disabled to avoid hanging
+        # alt_domains = self._discover_alternative_domains(brand_name, base_url)
+        # for alt_domain in alt_domains:
+        #     alt_packs = self._scan_url_for_media(alt_domain, alt_domain, discovered_urls)
+        #     media_packs.extend(alt_packs)
         
         if self.logger:
             self.logger.info(f"Discovered {len(media_packs)} media pack(s) for {brand_name}")
@@ -143,7 +150,7 @@ class MediaPackDiscovery:
             url = f"https://{url}"
         return url
     
-    def _scan_url_for_media(self, url: str, base_url: str, discovered_urls: Set[str]) -> List[MediaPackInfo]:
+    def _scan_url_for_media(self, url: str, base_url: str, discovered_urls: Set[str], uk_only: bool = False) -> List[MediaPackInfo]:
         """
         Scan a URL for media pack files
         
@@ -151,6 +158,7 @@ class MediaPackDiscovery:
             url: URL to scan
             base_url: Base URL for resolving relative links
             discovered_urls: Set of already discovered URLs to avoid duplicates
+            uk_only: If True, only return UK-specific media packs
         
         Returns:
             List of discovered media packs
@@ -190,6 +198,10 @@ class MediaPackDiscovery:
                 # Check if it's a media file
                 file_type = self._get_file_type(absolute_url)
                 if file_type:
+                    # Apply UK filtering if requested
+                    if uk_only and not self._is_uk_content(absolute_url, link.get_text() or ""):
+                        continue
+                    
                     discovered_urls.add(absolute_url)
                     
                     # Analyze the media pack
@@ -209,13 +221,14 @@ class MediaPackDiscovery:
         
         return media_packs
     
-    def _scan_homepage(self, base_url: str, discovered_urls: Set[str]) -> List[MediaPackInfo]:
+    def _scan_homepage(self, base_url: str, discovered_urls: Set[str], uk_only: bool = False) -> List[MediaPackInfo]:
         """
         Scan homepage for media pack links
         
         Args:
             base_url: Base URL to scan
             discovered_urls: Set of already discovered URLs
+            uk_only: If True, only return UK-specific media packs
         
         Returns:
             List of discovered media packs
@@ -247,7 +260,7 @@ class MediaPackDiscovery:
                     absolute_url = urljoin(base_url, href)
                     
                     # Scan this potential media page
-                    packs = self._scan_url_for_media(absolute_url, base_url, discovered_urls)
+                    packs = self._scan_url_for_media(absolute_url, base_url, discovered_urls, uk_only)
                     media_packs.extend(packs)
         
         except Exception as e:
@@ -268,13 +281,17 @@ class MediaPackDiscovery:
         """
         url_lower = url.lower()
         
+        # Check for Dropbox shared links
+        if 'dropbox.com/scl/' in url_lower:
+            return 'dropbox_shared'
+        
         # Check for multi-part extensions first
         if '.tar.gz' in url_lower:
             return '.tar.gz'
         
         # Check single extensions
         for ext in self.FILE_TYPES.keys():
-            if ext != '.tar.gz' and url_lower.endswith(ext):
+            if ext != '.tar.gz' and ext != 'dropbox_shared' and url_lower.endswith(ext):
                 return ext
         
         return None
@@ -292,6 +309,35 @@ class MediaPackDiscovery:
             MediaPackInfo object or None if analysis fails
         """
         try:
+            # For Dropbox shared links, follow redirects to get actual file info
+            if file_type == 'dropbox_shared':
+                # Follow redirect to see what it points to
+                response = self.session.head(
+                    url,
+                    timeout=self.timeout,
+                    allow_redirects=True,
+                    headers=self._get_headers()
+                )
+                
+                # Check if it redirects to a ZIP download
+                if response.status_code == 200 and 'content-type' in response.headers:
+                    content_type = response.headers.get('content-type', '').lower()
+                    if 'zip' in content_type or 'application/octet-stream' in content_type:
+                        file_size = None
+                        if 'Content-Length' in response.headers:
+                            file_size = int(response.headers['Content-Length'])
+                        
+                        return MediaPackInfo(
+                            url=url,
+                            file_type='.zip',  # Treat as ZIP for processing
+                            file_size=file_size,
+                            content_type='Dropbox shared folder (ZIP)',
+                            accessible=True,
+                            restricted=False,
+                            estimated_download_time=file_size / (1024 * 1024) if file_size else None,
+                            discovered_from=discovered_from
+                        )
+            
             # Use HEAD request to get metadata without downloading
             response = self.session.head(
                 url,
@@ -460,3 +506,37 @@ class MediaPackDiscovery:
             size_bytes /= 1024.0
         
         return f"{size_bytes:.1f} TB"
+    
+    def _is_uk_content(self, url: str, link_text: str = "") -> bool:
+        """
+        Check if URL or link text indicates UK-specific content
+        
+        Args:
+            url: URL to check
+            link_text: Link text to check
+        
+        Returns:
+            True if content appears to be UK-specific
+        """
+        url_lower = url.lower()
+        text_lower = link_text.lower()
+        
+        # UK-specific indicators
+        uk_indicators = [
+            'uk', 'united kingdom', 'british', 'england', 'scotland', 'wales', 
+            'northern ireland', 'london', 'manchester', 'birmingham', 'leeds',
+            'glasgow', 'edinburgh', 'cardiff', 'belfast', 'gbp', '£',
+            '/uk/', '/gb/', '-uk', '_uk', 'uk-', 'uk_'
+        ]
+        
+        # Check URL for UK indicators
+        for indicator in uk_indicators:
+            if indicator in url_lower:
+                return True
+        
+        # Check link text for UK indicators
+        for indicator in uk_indicators:
+            if indicator in text_lower:
+                return True
+        
+        return False

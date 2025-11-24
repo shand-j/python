@@ -7,7 +7,7 @@ import sys
 import argparse
 from pathlib import Path
 
-from modules import Config, setup_logger, ProductScraper
+from modules import Config, setup_logger, ProductScraper, BrandAssetScraper
 
 
 def parse_arguments():
@@ -18,32 +18,54 @@ def parse_arguments():
         argparse.Namespace: Parsed arguments
     """
     parser = argparse.ArgumentParser(
-        description='Product Data Scraper - Extract and process product data for Shopify import',
+        description='Brand Asset Bot - Discover and process brand marketing imagery',
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Scrape a single product
-  python main.py https://example.com/product-page
+  # Product scraping mode (legacy)
+  python main.py --mode product https://example.com/product-page
   
-  # Scrape multiple products from a file
-  python main.py --file urls.txt
+  # Brand asset discovery mode
+  python main.py --mode brand-asset --brand SMOK
   
-  # Scrape with custom config
-  python main.py --config config.env https://example.com/product-page
+  # Brand asset with competitor sources
+  python main.py --mode brand-asset --brand SMOK --include-competitors
   
-  # Export to JSON instead of CSV
-  python main.py --format json https://example.com/product-page
-  
-  # Skip image processing
-  python main.py --no-images https://example.com/product-page
+  # UK-only brand assets
+  python main.py --mode brand-asset --brand Vape-bars --uk-only
         """
+    )
+    
+    # Mode selection
+    parser.add_argument(
+        '--mode',
+        choices=['product', 'brand-asset'],
+        default='product',
+        help='Operation mode (default: product)'
+    )
+    
+    # Brand asset mode options
+    parser.add_argument(
+        '--brand', '-b',
+        type=str,
+        help='Brand name for asset discovery (brand-asset mode)'
+    )
+    parser.add_argument(
+        '--include-competitors',
+        action='store_true',
+        help='Include competitor sources in brand asset discovery'
+    )
+    parser.add_argument(
+        '--uk-only',
+        action='store_true',
+        help='Only discover UK-specific media packs'
     )
     
     # URL input options
     parser.add_argument(
         'urls',
         nargs='*',
-        help='Product page URLs to scrape'
+        help='Product page URLs to scrape (product mode)'
     )
     parser.add_argument(
         '--file', '-f',
@@ -97,12 +119,15 @@ Examples:
     
     args = parser.parse_args()
     
-    # Validate URL input
-    if not args.urls and not args.file:
-        parser.error('Either provide URLs as arguments or use --file option')
-    
-    if args.urls and args.file:
-        parser.error('Cannot use both URL arguments and --file option. Choose one.')
+    # Validate arguments based on mode
+    if args.mode == 'product':
+        if not args.urls and not args.file:
+            parser.error('Product mode requires URLs or --file option')
+        if args.urls and args.file:
+            parser.error('Cannot use both URL arguments and --file option. Choose one.')
+    elif args.mode == 'brand-asset':
+        if not args.brand:
+            parser.error('Brand-asset mode requires --brand option')
     
     return args
 
@@ -126,42 +151,8 @@ def load_urls_from_file(file_path):
     return urls
 
 
-def main():
-    """Main application entry point"""
-    args = parse_arguments()
-    
-    # Load configuration
-    try:
-        config = Config(args.config)
-        
-        # Override log level if verbose
-        if args.verbose:
-            config.log_level = 'DEBUG'
-        
-        # Validate configuration
-        is_valid, error_msg = config.validate()
-        if not is_valid:
-            print(f"Configuration error: {error_msg}")
-            print("\nNote: Some features may be disabled without proper configuration.")
-            print("Create a config.env file based on config.env.example")
-            
-            # Allow to continue if only OpenAI key is missing
-            if "OPENAI_API_KEY" not in error_msg:
-                return 1
-            else:
-                print("\nContinuing with limited functionality (no GPT features)...")
-    
-    except Exception as e:
-        print(f"Error loading configuration: {e}")
-        return 1
-    
-    # Setup logger
-    logger = setup_logger('ProductScraper', config.logs_dir, config.log_level)
-    
-    logger.info("=" * 80)
-    logger.info("Product Data Scraper Started")
-    logger.info("=" * 80)
-    
+def _run_product_scraper(args, config, logger):
+    """Run product scraping mode"""
     # Load URLs
     try:
         if args.file:
@@ -223,6 +214,101 @@ def main():
     except Exception as e:
         logger.error(f"Error during scraping: {e}", exc_info=True)
         return 1
+
+
+def _run_brand_asset_bot(args, config, logger):
+    """Run brand asset discovery mode"""
+    try:
+        # Initialize brand asset scraper
+        scraper = BrandAssetScraper(config, logger)
+    except Exception as e:
+        logger.error(f"Error initializing brand asset scraper: {e}")
+        return 1
+    
+    # Discover brand assets
+    try:
+        logger.info(f"Starting brand asset discovery for: {args.brand}")
+        
+        results = scraper.discover_brand_assets(
+            args.brand,
+            include_competitors=args.include_competitors,
+            uk_only=args.uk_only
+        )
+        
+        if results['official_assets'] or results['competitor_assets']:
+            total_assets = len(results['official_assets']) + len(results['competitor_assets'])
+            logger.info(f"Successfully discovered {total_assets} asset(s)")
+            
+            # Export catalog
+            export_file = scraper.export_brand_catalog(args.brand)
+            if export_file:
+                logger.info(f"Catalog exported: {export_file}")
+                print(f"\n✓ Success! Catalog exported: {export_file}")
+            else:
+                logger.warning("Catalog export failed")
+        else:
+            logger.warning("No assets were discovered")
+        
+        logger.info("=" * 80)
+        logger.info("Brand Asset Bot Completed")
+        logger.info("=" * 80)
+        
+        return 0
+        
+    except KeyboardInterrupt:
+        logger.info("Process interrupted by user")
+        return 130
+    except Exception as e:
+        logger.error(f"Error during brand asset discovery: {e}", exc_info=True)
+        return 1
+
+
+def main():
+    """Main application entry point"""
+    args = parse_arguments()
+    
+    # Load configuration
+    try:
+        config = Config(args.config)
+        
+        # Override log level if verbose
+        if args.verbose:
+            config.log_level = 'DEBUG'
+        
+        # Validate configuration
+        is_valid, error_msg = config.validate()
+        if not is_valid:
+            print(f"Configuration error: {error_msg}")
+            print("\nNote: Some features may be disabled without proper configuration.")
+            print("Create a config.env file based on config.env.example")
+            
+            # Allow to continue if only OpenAI key is missing
+            if "OPENAI_API_KEY" not in error_msg:
+                return 1
+            else:
+                print("\nContinuing with limited functionality (no GPT features)...")
+    
+    except Exception as e:
+        print(f"Error loading configuration: {e}")
+        return 1
+    
+    # Setup logger
+    if args.mode == 'product':
+        logger = setup_logger('ProductScraper', config.logs_dir, config.log_level)
+        logger.info("=" * 80)
+        logger.info("Product Data Scraper Started")
+        logger.info("=" * 80)
+    else:
+        logger = setup_logger('BrandAssetBot', config.logs_dir, config.log_level)
+        logger.info("=" * 80)
+        logger.info("Brand Asset Bot Started")
+        logger.info("=" * 80)
+    
+    # Execute based on mode
+    if args.mode == 'product':
+        return _run_product_scraper(args, config, logger)
+    else:
+        return _run_brand_asset_bot(args, config, logger)
 
 
 if __name__ == '__main__':

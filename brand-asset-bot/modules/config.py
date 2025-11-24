@@ -49,7 +49,14 @@ class Config:
         self.output_dir = Path(os.getenv('OUTPUT_DIR', './output'))
         self.images_dir = Path(os.getenv('IMAGES_DIR', './images'))
         self.logs_dir = Path(os.getenv('LOGS_DIR', './logs'))
-        self.output_format = os.getenv('OUTPUT_FORMAT', 'csv')
+        self.data_dir = Path(os.getenv('DATA_DIR', './data'))
+        
+        # Brand Asset Configuration
+        self.brand_registry_file = Path(os.getenv('BRAND_REGISTRY_FILE', './data/brands.json'))
+        self.competitor_sites_file = Path(os.getenv('COMPETITOR_SITES_FILE', './data/competitor_sites.json'))
+        self.download_dir = Path(os.getenv('DOWNLOAD_DIR', './downloads'))
+        self.extracted_dir = Path(os.getenv('EXTRACTED_DIR', './extracted'))
+        self.catalog_dir = Path(os.getenv('CATALOG_DIR', './catalog'))
         
         # Logging Configuration
         self.log_level = os.getenv('LOG_LEVEL', 'INFO')
@@ -62,6 +69,10 @@ class Config:
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.images_dir.mkdir(parents=True, exist_ok=True)
         self.logs_dir.mkdir(parents=True, exist_ok=True)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        self.download_dir.mkdir(parents=True, exist_ok=True)
+        self.extracted_dir.mkdir(parents=True, exist_ok=True)
+        self.catalog_dir.mkdir(parents=True, exist_ok=True)
     
     def validate(self):
         """

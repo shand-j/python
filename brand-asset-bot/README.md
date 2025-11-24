@@ -1,15 +1,15 @@
-# Product Data Scraper for Shopify
+# Brand Asset Bot
 
-A comprehensive Python application for scraping product data from e-commerce websites, enhancing descriptions with AI, and preparing data for Shopify import.
+A comprehensive Python application for discovering and processing brand marketing imagery from official sources and competitor websites, preparing assets for marketing campaigns and Shopify integration.
 
 ## Features
 
 ### Core Functionality
-- **Web Scraping**: Extract product data from various e-commerce website structures
-  - Product titles and descriptions
-  - Specifications and metadata
-  - Navigation and collection data
-  - Hidden content accessible via metadata
+- **Brand Asset Discovery**: Extract marketing imagery from hero banners, promotional content, and brand campaigns
+  - Official media pack downloads and extraction
+  - Competitor website marketing image collection
+  - Intelligent content categorization (marketing, branding, lifestyle)
+  - Quality assessment and deduplication
   
 - **Image Processing**
   - Download all product images
@@ -129,6 +129,7 @@ pip install -r requirements.txt
 4. Configure the application:
 ```bash
 cp config.env.example config.env
+cp brands.txt.example brands.txt
 ```
 
 Edit `config.env` and add your configuration:
@@ -139,23 +140,32 @@ IMAGE_MAX_WIDTH=1024
 IMAGE_MAX_HEIGHT=1024
 ```
 
+Edit `brands.txt` to customize the brand list (optional - defaults are included).
+
 ## Usage
 
-### Product Scraping
+### Brand Asset Discovery
+
+Discover marketing assets for a brand:
+```bash
+python main.py --mode brand-asset --brand SMOK
+```
+
+Include competitor sources:
+```bash
+python main.py --mode brand-asset --brand SMOK --include-competitors
+```
+
+### Product Scraping (Legacy Mode)
 
 Scrape a single product:
 ```bash
-python main.py https://example.com/product-page
+python main.py --mode product https://example.com/product-page
 ```
 
 Scrape multiple products:
 ```bash
-python main.py https://example.com/product1 https://example.com/product2
-```
-
-Scrape from a file containing URLs:
-```bash
-python main.py --file urls.txt
+python main.py --mode product https://example.com/product1 https://example.com/product2
 ```
 
 ### Brand Management

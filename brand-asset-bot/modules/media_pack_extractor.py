@@ -122,6 +122,9 @@ class MediaPackExtractor:
                 if self.logger:
                     self.logger.info(f"Organized files into {len(categorized)} categories")
                 
+                # Remove empty directories
+                self._remove_empty_directories(extract_dir)
+                
                 # Update extracted_files to reflect moved files
                 extracted_files = []
                 for files_list in categorized.values():
@@ -452,3 +455,33 @@ class MediaPackExtractor:
                 for f in extracted_files[:100]  # Limit inventory size
             ]
         }
+    
+    def _remove_empty_directories(self, base_dir: Path) -> None:
+        """
+        Remove empty directories from the extraction directory
+        
+        Args:
+            base_dir: Base directory to clean up
+        """
+        if not base_dir.exists():
+            return
+        
+        removed_count = 0
+        
+        # Walk through all directories in reverse order (bottom-up)
+        # This ensures we remove empty subdirectories before checking parent directories
+        for dir_path in sorted(base_dir.rglob('*'), key=lambda x: len(x.parts), reverse=True):
+            if dir_path.is_dir():
+                try:
+                    # Check if directory is empty
+                    if not any(dir_path.iterdir()):
+                        dir_path.rmdir()
+                        removed_count += 1
+                        if self.logger:
+                            self.logger.debug(f"Removed empty directory: {dir_path}")
+                except Exception as e:
+                    if self.logger:
+                        self.logger.debug(f"Could not remove directory {dir_path}: {e}")
+        
+        if self.logger and removed_count > 0:
+            self.logger.info(f"Removed {removed_count} empty directories")
