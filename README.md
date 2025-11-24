@@ -32,22 +32,62 @@ python main.py --help
 - [DOCUMENTATION.md](product-scraper/DOCUMENTATION.md) - Technical documentation
 - [CONTRIBUTING.md](product-scraper/CONTRIBUTING.md) - Developer guide
 
+### Vape Product Tagger
+
+An intelligent AI-powered product tagging and navigation data pipeline for vaping products in Shopify.
+
+**Location:** `vape-product-tagger/`
+
+**Features:**
+- Multi-dimensional hierarchical taxonomy (device types, flavors, nicotine levels)
+- Ollama AI integration for semantic analysis
+- Rule-based and AI-powered tagging
+- Comprehensive flavor taxonomy with sub-categories
+- Nicotine strength and type classification
+- Compliance and age verification tags
+- Dynamic Shopify collection generation
+- Batch processing with parallel execution
+- AI tag caching for performance
+
+**Quick Start:**
+```bash
+cd vape-product-tagger
+./setup.sh  # or setup.bat on Windows
+python main.py --input products.csv
+```
+
+**Documentation:**
+- [README.md](vape-product-tagger/README.md) - Complete user guide
+- [QUICKSTART.md](vape-product-tagger/QUICKSTART.md) - Get started in 5 minutes
+- [TAXONOMY.md](vape-product-tagger/TAXONOMY.md) - Complete taxonomy reference
+
 ## Repository Structure
 
 ```
 python/
-├── .github/              # GitHub configuration
-├── product-scraper/      # Product data scraper project
-│   ├── modules/          # Core application modules
-│   ├── output/           # Generated output files
-│   ├── images/           # Downloaded images
-│   ├── logs/             # Application logs
-│   ├── main.py           # Main entry point
-│   ├── demo.py           # Demonstration script
-│   ├── requirements.txt  # Python dependencies
-│   ├── setup.sh/bat      # Setup scripts
+├── .github/                # GitHub configuration
+├── product-scraper/        # Product data scraper project
+│   ├── modules/            # Core application modules
+│   ├── output/             # Generated output files
+│   ├── images/             # Downloaded images
+│   ├── logs/               # Application logs
+│   ├── main.py             # Main entry point
+│   ├── demo.py             # Demonstration script
+│   ├── requirements.txt    # Python dependencies
+│   ├── setup.sh/bat        # Setup scripts
 │   └── Documentation files
-└── README.md             # This file
+├── vape-product-tagger/    # Vape product tagging pipeline
+│   ├── modules/            # Core application modules
+│   ├── output/             # Generated output files
+│   ├── logs/               # Application logs
+│   ├── cache/              # AI tag cache
+│   ├── sample_data/        # Sample product data
+│   ├── main.py             # Main entry point
+│   ├── demo.py             # Demonstration script
+│   ├── requirements.txt    # Python dependencies
+│   ├── setup.sh/bat        # Setup scripts
+│   └── Documentation files
+└── README.md               # This file
 ```
 
 ## General Guidelines

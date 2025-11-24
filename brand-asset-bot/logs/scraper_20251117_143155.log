@@ -1,0 +1,57 @@
+2025-11-17 14:31:55 - ProductScraper - INFO - main:161 - ================================================================================
+2025-11-17 14:31:55 - ProductScraper - INFO - main:162 - Product Data Scraper Started
+2025-11-17 14:31:55 - ProductScraper - INFO - main:163 - ================================================================================
+2025-11-17 14:31:55 - ProductScraper - INFO - main:177 - Processing 1 URL(s)
+2025-11-17 14:31:55 - ProductScraper - INFO - __init__:27 - Using custom OpenAI base URL: http://localhost:11434/v1
+2025-11-17 14:31:55 - ProductScraper - INFO - main:192 - Starting product scraping...
+2025-11-17 14:31:55 - ProductScraper - INFO - scrape_products:134 - Starting batch scrape of 1 products
+2025-11-17 14:31:55 - ProductScraper - INFO - scrape_products:140 - Processing product 1/1
+2025-11-17 14:31:55 - ProductScraper - INFO - scrape_product:45 - Starting product scrape: https://www.vapourism.co.uk/products/20mg-lost-mary-4in1-pod-vape-kit-2400-puffs?Flavour=Menthol
+2025-11-17 14:31:55 - ProductScraper - INFO - fetch_page:83 - Fetching page: https://www.vapourism.co.uk/products/20mg-lost-mary-4in1-pod-vape-kit-2400-puffs?Flavour=Menthol
+2025-11-17 14:31:58 - ProductScraper - INFO - scrape_product:77 - Enhancing product description
+2025-11-17 14:31:58 - ProductScraper - INFO - enhance_description:51 - Enhancing description for: 20mg Lost Mary 4in1 Pod Vape Kit 2400 Puffs
+2025-11-17 14:31:58 - ProductScraper - ERROR - enhance_description:88 - Error enhancing description: Error code: 404 - {'error': {'message': "model 'gpt-oss:20b' not found", 'type': 'api_error', 'param': None, 'code': None}}
+2025-11-17 14:31:58 - ProductScraper - INFO - generate_summary:203 - Generating description summary
+2025-11-17 14:31:58 - ProductScraper - ERROR - generate_summary:228 - Error generating summary: Error code: 404 - {'error': {'message': "model 'gpt-oss:20b' not found", 'type': 'api_error', 'param': None, 'code': None}}
+2025-11-17 14:31:58 - ProductScraper - INFO - scrape_product:90 - Generating product tags
+2025-11-17 14:31:58 - ProductScraper - INFO - generate_tags:108 - Generating tags for: 20mg Lost Mary 4in1 Pod Vape Kit 2400 Puffs
+2025-11-17 14:31:58 - ProductScraper - ERROR - generate_tags:157 - Error generating tags: Error code: 404 - {'error': {'message': "model 'gpt-oss:20b' not found", 'type': 'api_error', 'param': None, 'code': None}}
+2025-11-17 14:31:58 - ProductScraper - INFO - scrape_product:100 - Processing 7 images
+2025-11-17 14:31:58 - ProductScraper - INFO - download_image:67 - Downloading image: https://cdn.shopify.com/s/files/1/0901/3696/9543/files/238771756.webp?v=1757687545&width=600&height=600&crop=center
+2025-11-17 14:32:01 - ProductScraper - INFO - download_image:86 - Downloaded image to: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_0_5dc79ce1.webp
+2025-11-17 14:32:01 - ProductScraper - INFO - resize_image:111 - Resizing image: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_0_5dc79ce1.webp
+2025-11-17 14:32:01 - ProductScraper - INFO - resize_image:152 - Image already within size limits: 600x600
+2025-11-17 14:32:01 - ProductScraper - INFO - download_image:67 - Downloading image: https://www.vapourism.co.uk/images/payment/visa.svg
+2025-11-17 14:32:03 - ProductScraper - INFO - download_image:86 - Downloaded image to: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_1_e5d24bd8.svg
+2025-11-17 14:32:03 - ProductScraper - INFO - resize_image:111 - Resizing image: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_1_e5d24bd8.svg
+2025-11-17 14:32:04 - ProductScraper - ERROR - resize_image:157 - Error resizing image images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_1_e5d24bd8.svg: cannot identify image file 'images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_1_e5d24bd8.svg'
+2025-11-17 14:32:04 - ProductScraper - INFO - download_image:67 - Downloading image: https://www.vapourism.co.uk/images/payment/mastercard.svg
+2025-11-17 14:32:06 - ProductScraper - INFO - download_image:86 - Downloaded image to: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_2_f45e1d28.svg
+2025-11-17 14:32:06 - ProductScraper - INFO - resize_image:111 - Resizing image: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_2_f45e1d28.svg
+2025-11-17 14:32:06 - ProductScraper - ERROR - resize_image:157 - Error resizing image images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_2_f45e1d28.svg: cannot identify image file 'images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_2_f45e1d28.svg'
+2025-11-17 14:32:06 - ProductScraper - INFO - download_image:67 - Downloading image: https://www.vapourism.co.uk/images/payment/amex.svg
+2025-11-17 14:32:08 - ProductScraper - INFO - download_image:86 - Downloaded image to: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_3_8e19b80c.svg
+2025-11-17 14:32:08 - ProductScraper - INFO - resize_image:111 - Resizing image: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_3_8e19b80c.svg
+2025-11-17 14:32:08 - ProductScraper - ERROR - resize_image:157 - Error resizing image images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_3_8e19b80c.svg: cannot identify image file 'images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_3_8e19b80c.svg'
+2025-11-17 14:32:08 - ProductScraper - INFO - download_image:67 - Downloading image: https://www.vapourism.co.uk/images/payment/paypal.svg
+2025-11-17 14:32:11 - ProductScraper - INFO - download_image:86 - Downloaded image to: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_4_f1812bcf.svg
+2025-11-17 14:32:11 - ProductScraper - INFO - resize_image:111 - Resizing image: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_4_f1812bcf.svg
+2025-11-17 14:32:11 - ProductScraper - ERROR - resize_image:157 - Error resizing image images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_4_f1812bcf.svg: cannot identify image file 'images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_4_f1812bcf.svg'
+2025-11-17 14:32:11 - ProductScraper - INFO - download_image:67 - Downloading image: https://www.vapourism.co.uk/images/payment/apple-pay.svg
+2025-11-17 14:32:13 - ProductScraper - INFO - download_image:86 - Downloaded image to: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_5_35ae9449.svg
+2025-11-17 14:32:13 - ProductScraper - INFO - resize_image:111 - Resizing image: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_5_35ae9449.svg
+2025-11-17 14:32:13 - ProductScraper - ERROR - resize_image:157 - Error resizing image images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_5_35ae9449.svg: cannot identify image file 'images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_5_35ae9449.svg'
+2025-11-17 14:32:13 - ProductScraper - INFO - download_image:67 - Downloading image: https://www.vapourism.co.uk/images/payment/google-pay.svg
+2025-11-17 14:32:15 - ProductScraper - INFO - download_image:86 - Downloaded image to: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_6_770d3ab3.svg
+2025-11-17 14:32:15 - ProductScraper - INFO - resize_image:111 - Resizing image: images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_6_770d3ab3.svg
+2025-11-17 14:32:15 - ProductScraper - ERROR - resize_image:157 - Error resizing image images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_6_770d3ab3.svg: cannot identify image file 'images/20mg_Lost_Mary_4in1_Pod_Vape_Kit_2400_Puffs/image_6_770d3ab3.svg'
+2025-11-17 14:32:15 - ProductScraper - INFO - scrape_product:110 - Processed 7 images
+2025-11-17 14:32:15 - ProductScraper - INFO - scrape_product:116 - Successfully scraped product: 20mg Lost Mary 4in1 Pod Vape Kit 2400 Puffs
+2025-11-17 14:32:15 - ProductScraper - INFO - scrape_products:149 - Batch scrape completed. Success: 1, Failed: 0
+2025-11-17 14:32:15 - ProductScraper - INFO - export_to_csv:146 - Exporting 1 products to CSV: output/shopify_products_20251117_143215.csv
+2025-11-17 14:32:15 - ProductScraper - INFO - export_to_csv:199 - CSV export completed: output/shopify_products_20251117_143215.csv
+2025-11-17 14:32:15 - ProductScraper - INFO - main:204 - Successfully processed 1 product(s)
+2025-11-17 14:32:15 - ProductScraper - INFO - main:206 - Output file created: output/shopify_products_20251117_143215.csv
+2025-11-17 14:32:15 - ProductScraper - INFO - main:214 - ================================================================================
+2025-11-17 14:32:15 - ProductScraper - INFO - main:215 - Product Data Scraper Completed
+2025-11-17 14:32:15 - ProductScraper - INFO - main:216 - ================================================================================
