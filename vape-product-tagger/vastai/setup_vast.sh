@@ -13,7 +13,9 @@
 # Options (set as environment variables before running):
 #   SKIP_OLLAMA=1        Skip Ollama installation
 #   SKIP_TRAINING=1      Skip training dependencies
+#   SKIP_PROMPTS=1       Skip interactive prompts (use env vars)
 #   HF_TOKEN=xxx         HuggingFace token for model access
+#   HF_REPO_ID=xxx       HuggingFace repo for LoRA adapters
 #   BRANCH=main          Git branch to checkout (default: main)
 #
 
@@ -24,6 +26,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 # Configuration
@@ -61,6 +64,53 @@ info() {
 error() {
     echo -e "${RED}✗ Error: $1${NC}"
     exit 1
+}
+
+# Function to prompt user
+prompt() {
+    local var_name="$1"
+    local prompt_text="$2"
+    local default_value="$3"
+    local is_secret="${4:-false}"
+    
+    # Check if already set via environment
+    local current_value="${!var_name}"
+    if [ -n "$current_value" ]; then
+        if [ "$is_secret" = "true" ]; then
+            info "$var_name already set (from environment)"
+        else
+            info "$var_name=$current_value (from environment)"
+        fi
+        return
+    fi
+    
+    # Skip prompts if SKIP_PROMPTS is set
+    if [ "${SKIP_PROMPTS:-0}" = "1" ]; then
+        if [ -n "$default_value" ]; then
+            export "$var_name"="$default_value"
+        fi
+        return
+    fi
+    
+    # Interactive prompt
+    if [ -n "$default_value" ]; then
+        prompt_text="$prompt_text [$default_value]"
+    fi
+    
+    echo -e -n "${CYAN}  ? $prompt_text: ${NC}"
+    
+    if [ "$is_secret" = "true" ]; then
+        read -s user_input
+        echo ""
+    else
+        read user_input
+    fi
+    
+    if [ -z "$user_input" ] && [ -n "$default_value" ]; then
+        user_input="$default_value"
+    fi
+    
+    export "$var_name"="$user_input"
 }
 
 # Function to check if command exists
@@ -211,15 +261,25 @@ if [ ! -f "config.env" ]; then
     info "Creating config.env from template..."
     cp config.env.example config.env
     
-    # Update with HF token if provided
+    # Prompt for HuggingFace credentials
+    echo -e "\n${CYAN}  Configure HuggingFace (optional - press Enter to skip):${NC}"
+    prompt "HF_TOKEN" "HuggingFace API token" "" "true"
+    prompt "HF_REPO_ID" "HuggingFace repo for LoRA adapters" "your-username/vape-tagger-lora"
+    
+    # Update config.env with provided values
     if [ -n "$HF_TOKEN" ]; then
         sed -i "s/^HF_TOKEN=.*/HF_TOKEN=$HF_TOKEN/" config.env
         info "HuggingFace token configured"
+        
+        # Login to HuggingFace
+        info "Logging into HuggingFace Hub..."
+        pip install huggingface_hub -q 2>/dev/null
+        huggingface-cli login --token "$HF_TOKEN" --add-to-git-credential 2>/dev/null || true
     fi
     
-    if [ -n "$HF_REPO_ID" ]; then
-        sed -i "s/^HF_REPO_ID=.*/HF_REPO_ID=$HF_REPO_ID/" config.env
-        info "HuggingFace repo ID configured"
+    if [ -n "$HF_REPO_ID" ] && [ "$HF_REPO_ID" != "your-username/vape-tagger-lora" ]; then
+        sed -i "s|^HF_REPO_ID=.*|HF_REPO_ID=$HF_REPO_ID|" config.env
+        info "HuggingFace repo ID configured: $HF_REPO_ID"
     fi
 else
     info "config.env already exists"

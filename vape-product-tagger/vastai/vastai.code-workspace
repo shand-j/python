@@ -1,0 +1,120 @@
+{
+  "folders": [
+    {
+      "name": "vape-product-tagger",
+      "path": "/workspace/python/vape-product-tagger"
+    },
+    {
+      "name": "data",
+      "path": "/workspace/data"
+    }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "/workspace/python/vape-product-tagger/venv/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "terminal.integrated.cwd": "/workspace/python/vape-product-tagger",
+    "editor.formatOnSave": true,
+    "editor.rulers": [100],
+    "files.trimTrailingWhitespace": true,
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/*.pyc": true,
+      "**/venv": true,
+      "**/.git": true
+    },
+    "search.exclude": {
+      "**/venv": true,
+      "**/node_modules": true,
+      "**/__pycache__": true
+    }
+  },
+  "extensions": {
+    "recommendations": [
+      "ms-python.python",
+      "ms-python.vscode-pylance",
+      "ms-python.debugpy",
+      "mtxr.sqltools",
+      "mtxr.sqltools-driver-sqlite",
+      "redhat.vscode-yaml"
+    ]
+  },
+  "launch": {
+    "version": "0.2.0",
+    "configurations": [
+      {
+        "name": "Run Tagger",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder:vape-product-tagger}/main.py",
+        "args": [
+          "--input", "/workspace/data/products.csv",
+          "--audit-db", "/workspace/data/audit.sqlite3",
+          "--verbose"
+        ],
+        "cwd": "${workspaceFolder:vape-product-tagger}",
+        "console": "integratedTerminal"
+      },
+      {
+        "name": "Run Tagger (No AI)",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder:vape-product-tagger}/main.py",
+        "args": [
+          "--input", "/workspace/data/products.csv",
+          "--no-ai",
+          "--verbose"
+        ],
+        "cwd": "${workspaceFolder:vape-product-tagger}",
+        "console": "integratedTerminal"
+      },
+      {
+        "name": "Review Audit",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder:vape-product-tagger}/tag_audit_db.py",
+        "args": [
+          "--db", "/workspace/data/audit.sqlite3",
+          "--review"
+        ],
+        "cwd": "${workspaceFolder:vape-product-tagger}",
+        "console": "integratedTerminal"
+      },
+      {
+        "name": "Export Training Data",
+        "type": "debugpy",
+        "request": "launch",
+        "program": "${workspaceFolder:vape-product-tagger}/tag_auditor.py",
+        "args": [
+          "--audit-db", "/workspace/data/audit.sqlite3",
+          "--output", "/workspace/data/training_data.csv"
+        ],
+        "cwd": "${workspaceFolder:vape-product-tagger}",
+        "console": "integratedTerminal"
+      }
+    ]
+  },
+  "tasks": {
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "Start Ollama",
+        "type": "shell",
+        "command": "ollama serve",
+        "isBackground": true,
+        "problemMatcher": []
+      },
+      {
+        "label": "Pull Ollama Model",
+        "type": "shell",
+        "command": "ollama pull llama3.1",
+        "problemMatcher": []
+      },
+      {
+        "label": "Activate Venv",
+        "type": "shell",
+        "command": "source /workspace/python/vape-product-tagger/venv/bin/activate",
+        "problemMatcher": []
+      }
+    ]
+  }
+}
