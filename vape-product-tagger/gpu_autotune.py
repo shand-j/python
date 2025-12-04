@@ -142,9 +142,10 @@ class AutoTuner:
                  target_gpu_util: float = 80.0,
                  min_workers: int = 4,
                  max_workers: int = 32,
-                 ramp_step: int = 2,
+                 ramp_step: int = 4,
                  stabilize_secs: float = 10.0,
-                 ollama_model: str = 'llama3.1:8b'):
+                 ollama_model: str = 'llama3.1:8b',
+                 ollama_num_parallel: int = None):
         
         self.input_file = input_file
         self.target_gpu_util = target_gpu_util
@@ -160,6 +161,9 @@ class AutoTuner:
             load_dotenv(config_path)
             
         self.ollama_host = os.getenv('OLLAMA_HOST') or os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+        
+        # OLLAMA_NUM_PARALLEL - set if provided, otherwise read from env
+        self.ollama_num_parallel = ollama_num_parallel or int(os.getenv('OLLAMA_NUM_PARALLEL', 8))
         
         # HTTP session with connection pooling
         self._session = requests.Session()
@@ -294,17 +298,58 @@ Return JSON: {{"tags": ["tag1"], "confidence": 0.8}}"""
         
         return result
         
+    def _set_ollama_num_parallel(self, num_parallel: int):
+        """Set OLLAMA_NUM_PARALLEL by restarting Ollama with new value"""
+        print(f"\n  Setting OLLAMA_NUM_PARALLEL={num_parallel}...")
+        try:
+            # Set env var for current process (Ollama reads on start)
+            os.environ['OLLAMA_NUM_PARALLEL'] = str(num_parallel)
+            
+            # Kill existing Ollama
+            subprocess.run(['pkill', '-f', 'ollama'], capture_output=True, timeout=5)
+            time.sleep(1)
+            
+            # Start Ollama with new setting
+            env = os.environ.copy()
+            env['OLLAMA_NUM_PARALLEL'] = str(num_parallel)
+            subprocess.Popen(
+                ['ollama', 'serve'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                env=env
+            )
+            
+            # Wait for Ollama to be ready
+            for _ in range(30):
+                try:
+                    resp = self._session.get(f"{self.ollama_host}/api/tags", timeout=2)
+                    if resp.status_code == 200:
+                        print(f"  ✓ Ollama restarted with NUM_PARALLEL={num_parallel}")
+                        return True
+                except:
+                    pass
+                time.sleep(0.5)
+                
+            print(f"  ⚠ Ollama restart timeout")
+            return False
+        except Exception as e:
+            print(f"  ⚠ Failed to set OLLAMA_NUM_PARALLEL: {e}")
+            return False
+    
     def run_auto_tune(self) -> Dict:
         """Run auto-tuning process"""
         print("\n" + "="*70)
         print("GPU AUTO-TUNING - Ramping up workers to target utilization")
         print("="*70)
         print(f"Target GPU Utilization: {self.target_gpu_util}%")
-        print(f"Worker Range: {self.min_workers} - {self.max_workers}")
-        print(f"Ramp Step: {self.ramp_step}")
+        print(f"Worker Range: {self.min_workers} - {self.max_workers} (step: {self.ramp_step})")
         print(f"Stabilization Time: {self.stabilize_secs}s per step")
         print(f"Ollama Model: {self.ollama_model}")
         print(f"Ollama Host: {self.ollama_host}")
+        print(f"Ollama Parallel: {self.ollama_num_parallel}")
+        
+        # Set initial OLLAMA_NUM_PARALLEL
+        self._set_ollama_num_parallel(self.ollama_num_parallel)
         
         # Start GPU monitoring
         self.gpu_monitor.start()
@@ -318,30 +363,42 @@ Return JSON: {{"tags": ["tag1"], "confidence": 0.8}}"""
         
         optimal_workers = self.min_workers
         optimal_result = None
+        plateau_count = 0
         
         try:
-            # Ramp up workers
+            # Ramp up workers - test ALL values in range
             current_workers = self.min_workers
             
             while current_workers <= self.max_workers:
+                # Adjust OLLAMA_NUM_PARALLEL to match workers (keep slightly lower)
+                target_parallel = max(current_workers - 2, 4)
+                if target_parallel != self.ollama_num_parallel:
+                    self.ollama_num_parallel = target_parallel
+                    self._set_ollama_num_parallel(target_parallel)
+                    time.sleep(2)  # Let Ollama stabilize
+                
                 result = self._run_with_workers(current_workers, self.stabilize_secs)
                 
-                # Check if we've hit target
-                if result.avg_gpu_util >= self.target_gpu_util:
-                    print(f"\n✓ Target GPU utilization reached at {current_workers} workers!")
-                    optimal_workers = current_workers
+                # Track best result by throughput
+                if optimal_result is None or result.products_per_min > optimal_result.products_per_min:
                     optimal_result = result
-                    break
+                    optimal_workers = current_workers
+                
+                # Check if we've hit target GPU util
+                if result.avg_gpu_util >= self.target_gpu_util:
+                    print(f"\n✓ Target GPU utilization ({self.target_gpu_util}%) reached at {current_workers} workers!")
+                    # Continue testing to find true optimal
                     
-                # Check if GPU util is still increasing
-                if len(self.tuning_results) >= 2:
-                    prev = self.tuning_results[-2]
-                    if result.avg_gpu_util <= prev.avg_gpu_util + 2:
-                        # GPU util plateaued, likely CPU or Ollama bottleneck
-                        print(f"\n⚠ GPU utilization plateaued at {result.avg_gpu_util:.1f}%")
-                        optimal_workers = current_workers
-                        optimal_result = result
-                        break
+                # Check for plateau (3 consecutive non-improvements)
+                if len(self.tuning_results) >= 3:
+                    recent = self.tuning_results[-3:]
+                    if all(r.products_per_min <= optimal_result.products_per_min * 1.02 for r in recent[-2:]):
+                        plateau_count += 1
+                        if plateau_count >= 2:
+                            print(f"\n⚠ Throughput plateaued - stopping early")
+                            break
+                    else:
+                        plateau_count = 0
                         
                 # Ramp up
                 current_workers += self.ramp_step
@@ -426,13 +483,16 @@ def main():
     parser = argparse.ArgumentParser(description='GPU Auto-Tuning for Vape Product Tagger')
     parser.add_argument('--input', '-i', required=True, help='Input CSV file')
     parser.add_argument('--target-gpu', type=float, default=80.0, help='Target GPU utilization %% (default: 80)')
-    parser.add_argument('--min-workers', type=int, default=4, help='Minimum workers to start (default: 4)')
+    parser.add_argument('--min-workers', type=int, default=8, help='Minimum workers to start (default: 8)')
     parser.add_argument('--max-workers', type=int, default=32, help='Maximum workers to test (default: 32)')
-    parser.add_argument('--ramp-step', type=int, default=2, help='Workers to add each step (default: 2)')
+    parser.add_argument('--ramp-step', type=int, default=4, help='Workers to add each step (default: 4)')
     parser.add_argument('--stabilize', type=float, default=15.0, help='Seconds to run each test (default: 15)')
     parser.add_argument('--model', default='llama3.1:8b', help='Ollama model (default: llama3.1:8b)')
+    parser.add_argument('--ollama-parallel', type=int, default=None, help='Initial OLLAMA_NUM_PARALLEL (default: auto)')
     
     args = parser.parse_args()
+    
+    print(f"Args received: min={args.min_workers}, max={args.max_workers}, step={args.ramp_step}")
     
     tuner = AutoTuner(
         input_file=args.input,
@@ -441,7 +501,8 @@ def main():
         max_workers=args.max_workers,
         ramp_step=args.ramp_step,
         stabilize_secs=args.stabilize,
-        ollama_model=args.model
+        ollama_model=args.model,
+        ollama_num_parallel=args.ollama_parallel
     )
     
     report = tuner.run_auto_tune()
