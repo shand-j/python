@@ -7,7 +7,7 @@ Only approved tags from approved_tags.json can be applied.
 """
 
 import json
-import ollama
+import requests
 import sqlite3
 import csv
 import re
@@ -208,6 +208,16 @@ class ControlledTagger:
         
         self.batch_size = int(os.getenv('BATCH_SIZE', 10))
         
+        # HTTP session with connection pooling for Ollama API calls
+        self._http_session = requests.Session()
+        adapter = requests.adapters.HTTPAdapter(
+            pool_connections=self.max_workers,
+            pool_maxsize=self.max_workers * 2,
+            max_retries=3
+        )
+        self._http_session.mount('http://', adapter)
+        self._http_session.mount('https://', adapter)
+        
         # Performance tracking
         self._processed_count = 0
         self._ai_skipped_count = 0
@@ -397,6 +407,23 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
 
         return base_prompt
     
+    def _get_ai_tags_ollama_http(self, prompt):
+        """Call Ollama via HTTP API for better parallel performance"""
+        ollama_host = os.getenv('OLLAMA_HOST', 'http://localhost:11434')
+        url = f"{ollama_host}/api/chat"
+        
+        payload = {
+            "model": self.ollama_model,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False
+        }
+        
+        response = self._http_session.post(url, json=payload, timeout=60)
+        response.raise_for_status()
+        
+        result = response.json()
+        return result.get('message', {}).get('content', '').strip()
+    
     def get_ai_tags(self, product_or_handle, title=None, description="", category=None):
         """Get AI tag suggestions using controlled vocabulary with category-aware prompting and confidence scoring.
         Returns tuple: (valid_tags, ai_metadata) where ai_metadata contains prompt, response, confidence, reasoning."""
@@ -434,12 +461,8 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             if self.model_backend == 'huggingface':
                 response_text = self._get_ai_tags_hf(prompt)
             else:
-                # Default: Ollama
-                response = ollama.chat(
-                    model=self.ollama_model,
-                    messages=[{'role': 'user', 'content': prompt}]
-                )
-                response_text = response['message']['content'].strip()
+                # Default: Ollama via HTTP (faster than ollama library for parallel calls)
+                response_text = self._get_ai_tags_ollama_http(prompt)
             
             ai_metadata['model_output'] = response_text
             
