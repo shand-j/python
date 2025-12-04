@@ -409,7 +409,8 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
     
     def _get_ai_tags_ollama_http(self, prompt):
         """Call Ollama via HTTP API for better parallel performance"""
-        ollama_host = os.getenv('OLLAMA_HOST', 'http://localhost:11434')
+        # Support both OLLAMA_HOST and OLLAMA_BASE_URL env vars
+        ollama_host = os.getenv('OLLAMA_HOST') or os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
         url = f"{ollama_host}/api/chat"
         
         payload = {
