@@ -188,7 +188,48 @@ Products CSV → Tagger (rule+AI) → Audit DB → Training Export
 
 Run the complete pipeline (tagging → audit → training) on Vast.ai GPU instances.
 
-### Step 1: Rent a Vast.ai Instance
+### One-Line Setup (Recommended)
+
+SSH into your Vast.ai instance and run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/shand-j/python/main/vape-product-tagger/vastai/setup_vast.sh | bash
+```
+
+This automatically:
+- Installs system dependencies (git, sqlite3, etc.)
+- Clones the repository
+- Creates Python virtual environment
+- Installs all Python packages (including training deps)
+- Installs Ollama and pulls llama3.1 model
+- Configures the environment
+
+**With HuggingFace token:**
+```bash
+HF_TOKEN=hf_xxx HF_REPO_ID=username/vape-tagger-lora \
+  curl -fsSL https://raw.githubusercontent.com/shand-j/python/main/vape-product-tagger/vastai/setup_vast.sh | bash
+```
+
+**Options:**
+```bash
+SKIP_OLLAMA=1      # Skip Ollama installation
+SKIP_TRAINING=1    # Skip training dependencies
+BRANCH=dev         # Use different git branch
+```
+
+After setup, activate and run:
+```bash
+source /workspace/activate_tagger.sh
+python main.py --input /workspace/data/products.csv --audit-db /workspace/data/audit.sqlite3
+```
+
+---
+
+### Manual Setup
+
+If you prefer manual setup:
+
+#### Step 1: Rent a Vast.ai Instance
 
 1. Go to [vast.ai/console/create](https://cloud.vast.ai/console/create/)
 2. Filter for **24GB+ VRAM** (RTX 4090, A5000, A6000, A100)
@@ -198,31 +239,38 @@ Run the complete pipeline (tagging → audit → training) on Vast.ai GPU instan
    - Disk: 50GB+
    - RAM: 32GB+
 
-### Step 2: Setup Environment
+#### Step 2: Setup Environment
 
 SSH into your instance and run:
 
 ```bash
+# Install system dependencies
+apt-get update && apt-get install -y git sqlite3
+
 # Clone repository
 cd /workspace
 git clone https://github.com/shand-j/python.git
 cd python/vape-product-tagger
 
+# Create virtual environment
+python3 -m venv venv
+source venv/bin/activate
+
 # Install dependencies (includes training + inference)
 pip install -r requirements.txt
 pip install -r vastai/requirements-train.txt
 
-# Optional: Flash Attention for faster training
+# Optional: Flash Attention for faster training (takes 15-30 min)
 pip install flash-attn --no-build-isolation
 
-# Setup Ollama for AI tagging (optional but recommended)
+# Setup Ollama for AI tagging
 curl -fsSL https://ollama.com/install.sh | sh
 ollama serve &
 sleep 5
 ollama pull llama3.1
 ```
 
-### Step 3: Upload Your Data
+#### Step 3: Upload Your Data
 
 ```bash
 # Create input directory
