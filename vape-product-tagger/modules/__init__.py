@@ -6,8 +6,15 @@ from .logger import setup_logger
 from .taxonomy import VapeTaxonomy
 from .ollama_processor import OllamaProcessor
 from .product_tagger import ProductTagger
-from .shopify_handler import ShopifyHandler
-from .unified_cache import UnifiedCache
+try:
+    from .shopify_handler import ShopifyHandler
+except Exception:
+    ShopifyHandler = None
+
+try:
+    from .unified_cache import UnifiedCache
+except Exception:
+    UnifiedCache = None
 
 __all__ = [
     'Config',
@@ -15,5 +22,6 @@ __all__ = [
     'VapeTaxonomy',
     'OllamaProcessor',
     'ProductTagger',
-    'ShopifyHandler'
+    'ShopifyHandler',
+    'UnifiedCache'
 ]

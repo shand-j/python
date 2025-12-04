@@ -1,395 +1,456 @@
 # Vape Product Tagger
 
-An intelligent AI-powered product tagging and navigation data pipeline specifically designed for vaping products in Shopify. This tool uses advanced semantic analysis with Ollama AI and comprehensive rule-based tagging to create a multi-dimensional taxonomy for enhanced product discovery and filtering.
+AI-powered product tagging system for Shopify vaping and CBD products. Combines rule-based pattern matching with Ollama AI for accurate, consistent product categorization with a complete fine-tuning pipeline.
 
 ## Features
 
-### Intelligent Tagging System
-- **Multi-dimensional Taxonomy**: Comprehensive hierarchical tags covering device types, flavors, nicotine levels, and compliance
-- **AI-Powered Semantic Analysis**: Local Ollama integration for advanced flavor inference and tag generation
-- **Rule-Based Tagging**: Robust keyword-based tagging as primary or fallback mechanism
-- **Confidence Scoring**: AI tag generation with configurable confidence thresholds
+- **Dual Tagging Engine**: Rule-based + AI-powered tagging with confidence scoring
+- **Controlled Vocabulary**: Tags validated against `approved_tags.json`
+- **Category-Aware AI**: Different prompts for CBD, e-liquid, pods, devices
+- **Audit Database**: SQLite logging of all tagging decisions for analysis
+- **Fine-Tuning Pipeline**: QLoRA training on Vast.ai with HF Hub integration
+- **Dual Inference Backend**: Ollama (local) or HuggingFace (fine-tuned)
 
-### Product Taxonomy Coverage
+## Supported Product Types
 
-#### Device Classification
-- **Device Types**: Disposable, Rechargeable, Pod System, Mod, AIO (All-in-One)
-- **Device Forms**: Pen Style, Box Mod, Stick, Compact
+| Category | Tags |
+|----------|------|
+| **E-Liquid** | nic_salt, freebase_nicotine, shortfill |
+| **CBD** | tincture, gummy, capsule, topical, oil, patch, beverage, edible |
+| **CBD Spectrum** | full_spectrum, broad_spectrum, isolate, cbg, cbda |
+| **Devices** | disposable, pod_system, box_mod, device |
+| **Components** | coil, tank, replacement_pod, prefilled_pod |
+| **Accessories** | battery, charger, case, mouthpiece |
+| **VG/PG Ratios** | 50/50, 70/30, 80/20, 60/40, 100/0 |
+| **Nicotine** | 0-20mg (range-based) |
+| **CBD Strength** | 0-50000mg (range-based) |
+| **Flavors** | fruity, tobacco, menthol, desserts/bakery, beverages |
 
-#### Flavor Taxonomy
-Hierarchical flavor classification with main families and detailed sub-categories:
-- **Fruit**: Citrus, Berry, Tropical, Stone Fruit
-- **Dessert**: Custard, Bakery, Cream, Pudding
-- **Menthol**: Cool, Mint, Arctic, Herbal Mint
-- **Tobacco**: Classic, Sweet, Blend, Dark
-- **Beverage**: Coffee, Soda, Cocktail, Tea
+## Quick Start
 
-#### Nicotine Classification
-- **Strength Levels**: Zero (0mg), Low (3-6mg), Medium (9-12mg), High (18mg+)
-- **Nicotine Types**: Freebase, Salt Nicotine
+```bash
+# Setup
+cd vape-product-tagger
+./setup.sh
+source venv/bin/activate
 
-#### Compliance & Safety
-- Age restriction tags (18+, Adult Only)
-- Regional compliance indicators (US Compliant, EU Compliant, TPD Compliant)
-- Shipping restriction tags
-- Nicotine content warnings
+# Start Ollama (in another terminal)
+ollama serve
 
-### Shopify Integration
-- **CSV Import**: Read existing Shopify product exports
-- **CSV Export**: Generate Shopify-compatible import files with enhanced tags
-- **JSON Export**: Alternative structured data format
-- **Dynamic Collection Generation**: Auto-create collections based on tag patterns
-  - Flavor-based collections (Fruit Flavors, Dessert Flavors, etc.)
-  - Nicotine-based collections (Zero Nicotine, High Strength, etc.)
-  - Device-based collections (Disposables, Beginner Kits, etc.)
+# Run tagger
+python main.py --input input/products.csv --audit-db output/audit.sqlite3
+```
 
-### Performance & Scalability
-- **Batch Processing**: Configurable batch sizes for large catalogs
-- **Parallel Processing**: Multi-threaded tag generation
-- **AI Tag Caching**: Cache AI-generated tags to reduce API calls
-- **Low Computational Overhead**: Optimized for production environments
+See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
 
 ## Installation
 
 ### Prerequisites
-- Python 3.8 or higher
-- pip package manager
-- Ollama (optional, for AI-powered tagging)
+- Python 3.10+
+- [Ollama](https://ollama.ai) (for AI tagging)
 
-### Quick Start
-
-1. **Clone or navigate to the project directory**:
-```bash
-cd vape-product-tagger
-```
-
-2. **Run the setup script**:
-
-**Linux/Mac**:
-```bash
-chmod +x setup.sh
-./setup.sh
-```
-
-**Windows**:
-```bash
-setup.bat
-```
-
-3. **Activate the virtual environment**:
-
-**Linux/Mac**:
-```bash
-source venv/bin/activate
-```
-
-**Windows**:
-```bash
-venv\Scripts\activate.bat
-```
-
-4. **Configure the application**:
-```bash
-cp config.env.example config.env
-# Edit config.env with your settings
-```
-
-### Manual Installation
+### Setup
 
 ```bash
-# Create virtual environment
+# Automated
+./setup.sh  # Linux/Mac
+setup.bat   # Windows
+
+# Or manual
 python3 -m venv venv
-
-# Activate virtual environment
-source venv/bin/activate  # Linux/Mac
-# or
-venv\Scripts\activate.bat  # Windows
-
-# Install dependencies
+source venv/bin/activate
 pip install -r requirements.txt
-
-# Create configuration
 cp config.env.example config.env
-```
-
-## Configuration
-
-Edit `config.env` to customize the application:
-
-### Ollama AI Configuration
-```env
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama2
-OLLAMA_TIMEOUT=60
-ENABLE_AI_TAGGING=true
-```
-
-### Processing Configuration
-```env
-BATCH_SIZE=10
-PARALLEL_PROCESSING=true
-MAX_WORKERS=4
-CACHE_AI_TAGS=true
-```
-
-### Shopify Configuration
-```env
-SHOPIFY_VENDOR=Vape Store
-SHOPIFY_PRODUCT_TYPE=Vaping Products
-AUTO_PUBLISH=false
-AUTO_GENERATE_COLLECTIONS=true
-```
-
-### Compliance Configuration
-```env
-ENABLE_COMPLIANCE_TAGS=true
-DEFAULT_AGE_RESTRICTION=18+
-REGIONAL_COMPLIANCE=US
 ```
 
 ## Usage
 
-### Basic Usage
+### Basic Tagging
 
-Tag products from a Shopify CSV export:
 ```bash
-python main.py --input products.csv
+# AI + rule-based tagging
+python main.py --input input/products.csv
+
+# Rule-based only (faster, no Ollama needed)
+python main.py --input input/products.csv --no-ai
+
+# With audit database (recommended)
+python main.py --input input/products.csv --audit-db output/audit.sqlite3
+
+# Limit for testing
+python main.py --input input/products.csv --limit 10 --verbose
 ```
 
-### Advanced Usage
+### Output Files
 
-**Custom configuration**:
-```bash
-python main.py --input products.csv --config custom_config.env
 ```
-
-**Export to JSON format**:
-```bash
-python main.py --input products.csv --format json
-```
-
-**Disable AI tagging (rule-based only)**:
-```bash
-python main.py --input products.csv --no-ai
-```
-
-**Generate dynamic collections**:
-```bash
-python main.py --input products.csv --collections
-```
-
-**Control processing**:
-```bash
-python main.py --input products.csv --batch-size 20 --no-parallel
-```
-
-**Verbose logging**:
-```bash
-python main.py --input products.csv --verbose
+output/
+├── controlled_tagged_products.csv      # Tagged products for Shopify
+└── controlled_untagged_products.csv    # Products that couldn't be tagged
 ```
 
 ### Command Line Options
 
 ```
+python main.py --help
+
 Required:
-  --input, -i PATH          Input Shopify CSV file path
+  --input, -i PATH       Input Shopify CSV file
 
 Optional:
-  --config, -c PATH         Configuration file path
-  --output, -o PATH         Output file path (auto-generated if not specified)
-  --format, -f FORMAT       Output format: csv or json (default: csv)
-  --no-ai                   Disable AI-powered tagging
-  --collections             Generate dynamic collections
-  --batch-size N            Batch size for processing
-  --no-parallel             Disable parallel processing
-  --verbose, -v             Enable verbose logging
-  --quiet, -q               Quiet mode (minimal output)
+  --output, -o PATH      Output CSV file
+  --no-ai                Disable AI tagging (rule-based only)
+  --limit, -l N          Process only first N products
+  --verbose, -v          Enable detailed logging
+  --audit-db PATH        SQLite path for audit logging
+  --run-id ID            Resume a specific run
+  --type, -t TYPE        Override product type (e.g., "CBD products")
+  --config, -c PATH      Custom config file path
 ```
 
-## Ollama Integration
+## Configuration
 
-This application uses Ollama for local AI processing, which provides:
-- Privacy-focused local inference (no data sent to external APIs)
-- Cost-effective (no API costs)
-- Fast semantic analysis
-- Customizable AI models
+Edit `config.env`:
 
-### Setting Up Ollama
-
-1. **Install Ollama**:
-Visit [ollama.ai](https://ollama.ai) and follow installation instructions for your OS.
-
-2. **Pull a model**:
-```bash
-ollama pull llama2
-# or
-ollama pull mistral
-```
-
-3. **Start Ollama service**:
-```bash
-ollama serve
-```
-
-4. **Configure in config.env**:
 ```env
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=llama2
-ENABLE_AI_TAGGING=true
+# AI Model
+OLLAMA_MODEL=llama3.1
+AI_CONFIDENCE_THRESHOLD=0.7
+
+# Model Backend: ollama (default) or huggingface
+MODEL_BACKEND=ollama
+
+# HuggingFace (for fine-tuned models)
+HF_TOKEN=hf_xxx
+HF_REPO_ID=username/vape-tagger-lora
+
+# Training (Vast.ai)
+BASE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+QUANTIZATION_BITS=4
+LORA_R=64
+LORA_ALPHA=128
 ```
 
-### Fallback Mode
+## Audit & Analysis
 
-If Ollama is not available, the application automatically falls back to rule-based tagging without errors.
+### Enable Audit Logging
 
-## Output
-
-### CSV Output
-Shopify-compatible CSV file with:
-- All original product data preserved
-- Enhanced comprehensive tags
-- Ready for direct import into Shopify
-
-### JSON Output
-Structured JSON format containing:
-- All product metadata
-- Complete tag breakdown by category
-- Tag hierarchy and relationships
-- AI-enhanced insights
-
-### Collections JSON
-When using `--collections` flag, generates a JSON file with collection definitions:
-```json
-[
-  {
-    "title": "Fruit Flavors",
-    "description": "Explore our fruit flavored vaping products",
-    "filter_tags": ["Fruit"]
-  }
-]
+```bash
+python main.py --input products.csv --audit-db output/audit.sqlite3
 ```
 
-## Tagging Examples
+### Analyze Results
 
-### Example 1: Disposable Fruit Vape
-**Input Product**: "Tropical Mango Ice Disposable Vape (0mg)"
+```bash
+# Export training data from audit
+python tag_auditor.py --audit-db output/audit.sqlite3 --output training_data.csv
 
-**Generated Tags**:
-- Product Type: Disposable, Single Use, Vape
-- Device Form: Compact, Disposable
-- Flavor: Fruit, Tropical, Mango, Ice, Cool
-- Nicotine: 0mg, Zero Nicotine, No Nicotine
-- Compliance: 18+, Age Restricted, US Compliant
+# View audit summary
+python tag_auditor.py --audit-db output/audit.sqlite3 --summary
+```
 
-### Example 2: Rechargeable Pod System
-**Input Product**: "Strawberry Cheesecake Pod System 50mg Salt Nicotine"
+### Query Audit Database
 
-**Generated Tags**:
-- Product Type: Pod System, Pod, Rechargeable
-- Flavor: Dessert, Fruit, Berry, Strawberry, Cream, Bakery
-- Nicotine: High Strength, Strong, Nicotine Salt, Smooth
-- Compliance: 18+, Contains Nicotine, Nicotine Warning
+```bash
+sqlite3 output/audit.sqlite3
+
+# Recent runs
+SELECT run_id, started_at, status FROM runs ORDER BY started_at DESC LIMIT 5;
+
+# Products with AI metadata
+SELECT handle, ai_confidence, ai_reasoning FROM products WHERE ai_confidence IS NOT NULL LIMIT 10;
+```
+
+## Training Pipeline
+
+Fine-tune a model on your audit data for improved accuracy.
+
+### Prerequisites
+- [Vast.ai](https://vast.ai) account (24GB+ VRAM instance)
+- [Hugging Face](https://huggingface.co) account
+- 100+ tagged products in audit DB
+
+### Workflow
+
+```
+Products CSV → Tagger (rule+AI) → Audit DB → Training Export
+                                      ↓
+                              Vast.ai QLoRA Training
+                                      ↓
+                              HF Hub (LoRA adapters)
+                                      ↓
+                              Production Inference
+```
+
+---
+
+## Running on Vast.ai (Full Workflow)
+
+Run the complete pipeline (tagging → audit → training) on Vast.ai GPU instances.
+
+### Step 1: Rent a Vast.ai Instance
+
+1. Go to [vast.ai/console/create](https://cloud.vast.ai/console/create/)
+2. Filter for **24GB+ VRAM** (RTX 4090, A5000, A6000, A100)
+3. Select **PyTorch 2.1 + CUDA 12.1** template
+4. Recommended specs:
+   - GPU: 24GB+ VRAM
+   - Disk: 50GB+
+   - RAM: 32GB+
+
+### Step 2: Setup Environment
+
+SSH into your instance and run:
+
+```bash
+# Clone repository
+cd /workspace
+git clone https://github.com/shand-j/python.git
+cd python/vape-product-tagger
+
+# Install dependencies (includes training + inference)
+pip install -r requirements.txt
+pip install -r vastai/requirements-train.txt
+
+# Optional: Flash Attention for faster training
+pip install flash-attn --no-build-isolation
+
+# Setup Ollama for AI tagging (optional but recommended)
+curl -fsSL https://ollama.com/install.sh | sh
+ollama serve &
+sleep 5
+ollama pull llama3.1
+```
+
+### Step 3: Upload Your Data
+
+```bash
+# Create input directory
+mkdir -p /workspace/data
+
+# Upload your Shopify export CSV (use scp, rsync, or Vast.ai file browser)
+# Example with scp from local machine:
+# scp products.csv root@<vast-ip>:/workspace/data/
+```
+
+### Step 4: Run Tagger with Audit
+
+```bash
+cd /workspace/python/vape-product-tagger
+
+# Run tagger with audit database
+python main.py \
+  --input /workspace/data/products.csv \
+  --output /workspace/data/tagged_products.csv \
+  --audit-db /workspace/data/audit.sqlite3 \
+  --verbose
+
+# Check results
+ls -la /workspace/data/
+sqlite3 /workspace/data/audit.sqlite3 "SELECT COUNT(*) FROM products"
+```
+
+### Step 5: Analyze Audit & Export Training Data
+
+```bash
+# View audit summary
+python tag_auditor.py \
+  --audit-db /workspace/data/audit.sqlite3 \
+  --summary
+
+# Export training data
+python tag_auditor.py \
+  --audit-db /workspace/data/audit.sqlite3 \
+  --output /workspace/data/training_data.csv
+
+# Convert to JSONL for training
+python train_tag_model.py \
+  --export \
+  --input /workspace/data/training_data.csv \
+  --output /workspace/data/training_data.jsonl
+```
+
+### Step 6: Train Model
+
+```bash
+# Set HuggingFace credentials
+export HF_TOKEN=hf_your_token
+export HF_REPO_ID=your-username/vape-tagger-lora
+
+# Login to HF Hub
+huggingface-cli login --token $HF_TOKEN
+
+# Run QLoRA training
+python train_tag_model.py \
+  --train \
+  --input /workspace/data/training_data.jsonl \
+  --output-dir /workspace/models/vape-tagger-lora \
+  --epochs 3 \
+  --batch-size 4 \
+  --push-to-hub
+
+# Training takes ~30-60 min depending on data size and GPU
+```
+
+### Step 7: Evaluate Model
+
+```bash
+# Generate predictions on test set
+python train_tag_model.py \
+  --generate-predictions \
+  --model-path /workspace/models/vape-tagger-lora \
+  --input /workspace/data/training_data.jsonl \
+  --output /workspace/data/predictions.jsonl
+
+# Evaluate accuracy
+python train_tag_model.py \
+  --evaluate \
+  --predictions /workspace/data/predictions.jsonl \
+  --corrections /workspace/data/training_data.csv \
+  --eval-output /workspace/data/evaluation.csv
+```
+
+### Step 8: Use Fine-Tuned Model
+
+After training, use the fine-tuned model for inference:
+
+```bash
+# Update config to use HF backend
+cat > config.env << EOF
+MODEL_BACKEND=huggingface
+HF_TOKEN=$HF_TOKEN
+HF_REPO_ID=$HF_REPO_ID
+BASE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+EOF
+
+# Run tagger with fine-tuned model
+python main.py \
+  --input /workspace/data/new_products.csv \
+  --output /workspace/data/new_tagged.csv \
+  --audit-db /workspace/data/audit.sqlite3
+```
+
+### Automated Script
+
+Use the automation scripts for the full pipeline:
+
+```bash
+# One-command setup + training
+export HF_TOKEN=hf_your_token
+export HF_REPO_ID=your-username/vape-tagger-lora
+export INPUT_CSV=/workspace/data/products.csv
+
+./setup_training.sh
+./run_training.sh --push-to-hub
+```
+
+### Download Results
+
+Before terminating your instance, download outputs:
+
+```bash
+# From your local machine:
+scp -r root@<vast-ip>:/workspace/data/ ./vast-output/
+scp -r root@<vast-ip>:/workspace/models/ ./vast-models/
+```
+
+---
 
 ## Project Structure
 
 ```
 vape-product-tagger/
-├── modules/                    # Core application modules
-│   ├── __init__.py            # Module exports
-│   ├── config.py              # Configuration management
-│   ├── logger.py              # Logging setup
-│   ├── taxonomy.py            # Vape product taxonomy definitions
-│   ├── ollama_processor.py    # Ollama AI integration
-│   ├── product_tagger.py      # Main tagging engine
-│   └── shopify_handler.py     # Shopify import/export
-├── output/                    # Generated CSV/JSON files
+├── main.py                    # Main tagger CLI
+├── tag_audit_db.py            # SQLite audit database
+├── tag_auditor.py             # Audit analysis & export
+├── tag_validator.py           # Tag validation utilities
+├── train_tag_model.py         # QLoRA training script
+├── approved_tags.json         # Controlled vocabulary
+├── config.env.example         # Configuration template
+├── requirements.txt           # Python dependencies
+├── setup.sh / setup.bat       # Setup scripts
+├── setup_training.sh          # Vast.ai training setup
+├── run_training.sh            # Training automation
+├── vastai/                    # Vast.ai template
+│   ├── Dockerfile
+│   ├── template.json
+│   └── requirements-train.txt
+├── input/                     # Input CSV files
+├── output/                    # Tagged output files
 ├── logs/                      # Application logs
-├── cache/                     # AI tag cache
-├── sample_data/              # Sample product data
-├── main.py                   # Main application entry point
-├── demo.py                   # Demonstration script
-├── requirements.txt          # Python dependencies
-├── config.env.example        # Configuration template
-├── setup.sh                  # Setup script (Linux/Mac)
-├── setup.bat                 # Setup script (Windows)
-├── README.md                 # This file
-├── QUICKSTART.md            # Quick start guide
-├── TAXONOMY.md              # Complete taxonomy reference
-└── .gitignore               # Git ignore rules
+└── cache/                     # AI tag cache
 ```
 
-## Best Practices
+## Customizing Tags
 
-### Data Preparation
-- Export your Shopify products to CSV format
-- Ensure product titles and descriptions are descriptive
-- Include nicotine strength in product information
-- Maintain consistent naming conventions
+Edit `approved_tags.json` to add/modify tags:
 
-### Performance Optimization
-- Enable caching for repeated processing: `CACHE_AI_TAGS=true`
-- Use parallel processing for large catalogs: `PARALLEL_PROCESSING=true`
-- Adjust batch size based on system resources: `BATCH_SIZE=10`
-- Use rule-based tagging first, then enable AI for refinement
-
-### AI Model Selection
-- **llama2**: Balanced performance and accuracy
-- **mistral**: Faster inference, good for large catalogs
-- **llama2:13b**: Higher accuracy, slower inference
-
-### Tag Management
-- Review AI-generated tags before bulk import
-- Use tag breakdown in JSON export for analysis
-- Customize taxonomy in `taxonomy.py` for your specific needs
-- Generate collections to improve customer navigation
+```json
+{
+  "category": ["e-liquid", "CBD", "device", "accessory"],
+  "nicotine_strength": {
+    "range": {"min": 0, "max": 20, "unit": "mg"}
+  },
+  "cbd_strength": {
+    "range": {"min": 0, "max": 50000, "unit": "mg"}
+  },
+  "vg_ratio": {
+    "tags": ["50/50", "70/30", "80/20"],
+    "applies_to": ["e-liquid"]
+  }
+}
+```
 
 ## Troubleshooting
 
-### Common Issues
+### "Ollama service not available"
+```bash
+ollama serve  # Start Ollama
+# Or use --no-ai for rule-based only
+```
 
-**"Ollama service not available"**
-- Ensure Ollama is installed and running: `ollama serve`
-- Check OLLAMA_BASE_URL in config.env
-- Application will fall back to rule-based tagging
+### Low tagging accuracy
+1. Adjust `AI_CONFIDENCE_THRESHOLD` in config (try 0.6)
+2. Review audit DB for patterns
+3. Fine-tune model on your data
 
-**"No tags generated"**
-- Verify product titles and descriptions are populated
-- Check that keywords in taxonomy.py match your product naming
-- Enable verbose logging: `--verbose`
+### "HF model loading failed"
+```bash
+# Ensure token has access to gated models
+huggingface-cli login
+# Accept Llama 3.1 license at https://huggingface.co/meta-llama/Meta-Llama-3.1-8B-Instruct
+```
 
-**"Import failed"**
-- Ensure CSV is valid Shopify export format
-- Check for proper UTF-8 encoding
-- Verify column headers match Shopify format
+### Memory issues during training
+- Reduce batch size: `--batch-size 2`
+- Use 4-bit quantization: `QUANTIZATION_BITS=4`
+- Ensure 24GB+ VRAM available
 
-**Performance issues with large catalogs**
-- Reduce batch size: `--batch-size 5`
-- Disable parallel processing temporarily: `--no-parallel`
-- Disable AI tagging for initial testing: `--no-ai`
+## Architecture
+
+### Tagging Flow
+
+1. **Rule-based extraction**: Pattern matching for VG/PG, nicotine strength, CBD form
+2. **Category detection**: Determine product type from handle/title
+3. **AI enhancement**: Category-aware prompting with confidence scoring
+4. **Tag validation**: Filter against `approved_tags.json`
+5. **Deduplication**: One tag per category, most specific wins
+
+### AI Confidence Scoring
+
+The AI returns confidence scores (0.0-1.0):
+- **0.95-1.0**: Explicit in title (e.g., "Nic Salt" → nic_salt)
+- **0.80-0.94**: Strong evidence from multiple sources
+- **0.60-0.79**: Reasonable inference with ambiguity
+- **Below 0.60**: Rejected (uses rule-based only)
 
 ## Contributing
 
-Contributions are welcome! Areas for enhancement:
-- Additional flavor categories and sub-categories
-- Support for more regional compliance standards
-- Enhanced AI prompts for better tag accuracy
-- Multi-language product support
-- Integration with other e-commerce platforms
+1. Fork the repository
+2. Create a feature branch
+3. Run tests: `python -m pytest test/`
+4. Submit a pull request
 
 ## License
 
-This project is provided as-is for vaping product data processing and Shopify integration.
-
-## Support
-
-For issues and questions:
-1. Check the log files in `logs/` directory
-2. Review this README and QUICKSTART.md
-3. Verify your configuration in `config.env`
-4. Run with `--verbose` flag for detailed debugging
-
-## Acknowledgments
-
-- Ollama for local AI inference
-- Shopify for e-commerce platform
-- Python community for excellent libraries
+MIT License - See LICENSE file for details.

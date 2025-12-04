@@ -33,9 +33,11 @@ You are a specialized software development agent focused on creating a comprehen
 ### Primary Technologies
 - Python 3.10+
 - Pandas for data manipulation
-- Ollama for local AI processing
+- Ollama for local AI processing (inference)
+- PyTorch + Transformers + PEFT for QLoRA training
+- Hugging Face Hub for model storage
+- Vast.ai for GPU training instances
 - Shopify API integration
-- Poetry for dependency management
 
 ### Required MCP Servers and Tools
 
@@ -69,6 +71,19 @@ You are a specialized software development agent focused on creating a comprehen
     - Collection generation
     - Webhook configuration
 
+#### Training Infrastructure (Vast.ai)
+- Custom Docker Template
+  * Base: PyTorch 2.1 + CUDA 12.1
+  * Stack: transformers, peft, trl, bitsandbytes, flash-attn
+  * VRAM: 24GB+ for Llama 3.1 8B QLoRA
+  * Workflow: Export JSONL → Train → Push to HF Hub
+
+#### Model Storage (Hugging Face Hub)
+- LoRA Adapters Repository
+  * Purpose: Persist fine-tuned model weights
+  * Workflow: Train on Vast.ai → Push adapters → Pull for inference
+  * Config: HF_TOKEN, HF_REPO_ID in config.env
+
 ## Development Workflow Specifications
 
 ### Pipeline Component Development
@@ -78,9 +93,16 @@ You are a specialized software development agent focused on creating a comprehen
    - Logging and validation
 
 2. AI Tagging Module
-   - Ollama-powered semantic analysis
-   - Multi-level tag generation
-   - Configurable AI confidence thresholds
+   - Dual backend: Ollama (local) or HF Hub (fine-tuned)
+   - Multi-level tag generation with category-aware prompting
+   - Configurable AI confidence thresholds (default: 0.7)
+   - Varied confidence examples to prevent 0.95 bias
+
+3. Training Pipeline Module
+   - Audit DB captures prompts, outputs, confidence, reasoning
+   - QLoRA fine-tuning with Llama 3.1 8B Instruct
+   - 80/20 train/validation split stratified by category
+   - HF Hub integration for model persistence
 
 3. Shopify Export Preparation
    - Generate Shopify-compatible CSV
@@ -120,10 +142,10 @@ You are a specialized software development agent focused on creating a comprehen
 - Protect against potential data leakage
 
 ## Deployment Preparation
-- Create Docker containerization
-- Develop CI/CD pipeline
-- Set up automated testing
-- Prepare deployment scripts for various environments
+- Vast.ai custom template (vastai/Dockerfile, vastai/template.json)
+- Training automation scripts (setup_training.sh, run_training.sh)
+- HF Hub model versioning and deployment
+- Local inference via Ollama or HF transformers pipeline
 
 ## Monitoring and Observability
 - Implement comprehensive logging
@@ -141,12 +163,12 @@ You are a specialized software development agent focused on creating a comprehen
 7. Prepare deployment artifacts
 
 ## Required External Services/Tools
-- Ollama (Local AI)
+- Ollama (Local inference)
+- Vast.ai (GPU training - 24GB+ VRAM instances)
+- Hugging Face Hub (Model storage)
 - Shopify API
 - GitHub Actions
-- Poetry (Dependency Management)
-- Docker
-- Prometheus/Grafana (Optional Monitoring)
+- Docker (Vast.ai template)
 
 ## Potential Challenges to Address
 - Handling varied product metadata
@@ -163,6 +185,6 @@ You are a specialized software development agent focused on creating a comprehen
 
 ## Future Expansion Considerations
 - Support for multiple e-commerce platforms
-- Enhanced AI model integration
-- Real-time tag generation
-- Machine learning-based tag improvement
+- Continuous learning from production corrections
+- A/B testing fine-tuned vs base models
+- Active learning for efficient training data collection

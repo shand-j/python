@@ -3,7 +3,10 @@ Ollama AI Integration Module
 Handles semantic analysis and tag generation using Ollama
 """
 import json
-import requests
+try:
+    import requests
+except Exception:
+    requests = None
 import re
 from typing import Dict, List, Optional
 import hashlib

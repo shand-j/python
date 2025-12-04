@@ -1,0 +1,4 @@
+Handle,Variant SKU,Title,Body (HTML)
+cbd-0mg-product,CBD000,CBD balm 0mg,Test product explicitly listing CBD 0mg
+cbd-3000mg-product,CBD3000,CBD oil 3000mg,High potency CBD oil 3000mg
+cbd-60000mg-product,CBD60000,CBD syrup 60000mg,Out-of-range CBD value 60000mg should not be accepted

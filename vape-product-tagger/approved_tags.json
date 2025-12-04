@@ -1,6 +1,6 @@
 {
   "category": [
-    "e-liquid", "disposable", "device", "pod_system", "box_mod", "tank", "coil", "accessory", "pod", "CBD"
+    "e-liquid", "nicotine_pouches", "disposable", "device", "pod_system", "box_mod", "tank", "coil", "accessory", "pod", "CBD"
   ],
   "capacity": {
     "applies_to": ["tank", "pod"],
@@ -15,15 +15,49 @@
     "tags": ["pen_style", "pod_style", "box_style", "stick_style", "compact", "mini"]
   },
   "nicotine_strength": {
-    "applies_to": ["e-liquid", "disposable", "device", "pod_system"],
-    "tags": ["20mg", "15mg", "10mg", "0mg", "18mg", "12mg", "6mg", "3mg"]
+    "applies_to": ["e-liquid", "disposable", "device", "pod_system", "nicotine_pouches"],
+    "range": {
+      "min": 0,
+      "max": 20,
+      "unit": "mg"
+    }
   },
   "cbd_strength": {
     "applies_to": ["CBD"],
-    "tags": ["200mg", "150mg", "100mg", "180mg", "120mg", "600mg", "300mg", "500mg", "1000mg", "1500mg", "250mg", "400mg", "750mg", "2000mg", "Unlimited mg"]
+    "range": {
+      "min": 0,
+      "max": 50000,
+      "unit": "mg"
+    }
   },
+    "cbd_form": {
+      "applies_to": ["CBD"],
+      "tags": [
+        "tincture",
+        "oil",
+        "gummy",
+        "capsule",
+        "topical",
+        "patch",
+        "paste",
+        "shot",
+        "isolate",
+        "edible",
+        "beverage"
+      ]
+    },
+    "cbd_type": {
+      "applies_to": ["CBD"],
+      "tags": [
+        "full_spectrum",
+        "broad_spectrum",
+        "isolate",
+        "cbg",
+        "cbda"
+      ]
+    },
   "flavour_type": {
-    "applies_to": ["e-liquid", "disposable"],
+    "applies_to": ["e-liquid", "disposable", "nicotine_pouches", "pod"],
     "tags": [
       "fruity",
       "ice",
@@ -37,8 +71,8 @@
     ]
   },
   "nicotine_type": {
-    "applies_to": ["e-liquid", "disposable", "device", "pod_system"],
-    "tags": ["nic_salt", "freebase_nicotine", "traditional_nicotine"]
+    "applies_to": ["e-liquid", "disposable", "device", "pod_system", "nicotine_pouches"],
+    "tags": ["nic_salt", "freebase_nicotine", "traditional_nicotine", "pouch"]
   },
   "power_supply": {
     "applies_to": ["device", "pod_system"],

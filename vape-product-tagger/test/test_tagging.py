@@ -13,10 +13,19 @@ from pathlib import Path
 
 def run_tagger(input_file, output_file, limit=None):
     """Run the tagger on the input file."""
-    cmd = [sys.executable, 'main.py', '--input', input_file, '--output', output_file, '--no-ai']
+    # Ensure input/output paths are full paths under the test directory
+    repo_test_dir = Path(__file__).parent
+    cmd = [
+        sys.executable,
+        'main.py',
+        '--input', str(repo_test_dir / input_file),
+        '--output', str(repo_test_dir / output_file),
+        '--no-ai'
+    ]
     if limit:
         cmd.extend(['--limit', str(limit)])
-    result = subprocess.run(cmd, capture_output=True, text=True, cwd=Path(__file__).parent)
+    # run from repo root
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=Path(__file__).parent.parent)
     return result.returncode == 0, result.stdout, result.stderr
 
 def load_expected_tags():
@@ -24,7 +33,7 @@ def load_expected_tags():
     # This could be a dict mapping handle to expected tags
     return {
         'test-e-liquid-50vg': ['10ml', '50/50', 'nic_salt', 'fruity', 'mouth-to-lung'],
-        'test-pod-refillable': ['refillable_pod'],
+        'test-pod-refillable': ['replacement_pod'],
         'test-device-pod-system': ['battery'],
         'test-coil-0-5ohm': ['0.5ohm'],
         'test-accessory-battery': ['battery'],
@@ -33,7 +42,9 @@ def load_expected_tags():
 
 def validate_output(output_file, expected_tags):
     """Validate the tagging output."""
-    with open(output_file, 'r') as f:
+    repo_test_dir = Path(__file__).parent
+    out_path = repo_test_dir / output_file
+    with open(out_path, 'r') as f:
         reader = csv.DictReader(f)
         results = list(reader)
     

@@ -19,6 +19,7 @@ from datetime import datetime
 from collections import defaultdict
 from dotenv import load_dotenv
 import os
+from tag_audit_db import TagAuditDB
 
 def parse_arguments():
     """Parse command line arguments"""
@@ -80,6 +81,24 @@ Examples:
         help='Enable verbose logging'
     )
     
+    parser.add_argument(
+        '--type', '-t',
+        type=str,
+        help='Optional override for product Type (e.g. "Vaping/Smoking Products" or "CBD products")'
+    )
+
+    parser.add_argument(
+        '--audit-db',
+        type=str,
+        help='Path to sqlite audit DB file (enables audit logging). If omitted, auditing is disabled.'
+    )
+
+    parser.add_argument(
+        '--run-id',
+        type=str,
+        help='Resume a specific run by ID. If omitted, starts a new run.'
+    )
+    
     return parser.parse_args()
 
 # Simple logger setup
@@ -93,7 +112,7 @@ def setup_simple_logger():
     return logger
 
 class ControlledTagger:
-    def __init__(self, config_file=None, no_ai=False, verbose=False):
+    def __init__(self, config_file=None, no_ai=False, verbose=False, default_product_type=None, audit_db_path=None, run_id=None):
         # Load config
         if config_file:
             load_dotenv(config_file)
@@ -104,10 +123,43 @@ class ControlledTagger:
                 load_dotenv(config_path)
         
         self.ollama_model = os.getenv('OLLAMA_MODEL', 'llama3.1')
+        self.model_backend = os.getenv('MODEL_BACKEND', 'ollama')  # 'ollama' or 'huggingface'
+        self.hf_repo_id = os.getenv('HF_REPO_ID')
+        self.hf_token = os.getenv('HF_TOKEN')
+        self.base_model = os.getenv('BASE_MODEL', 'meta-llama/Meta-Llama-3.1-8B-Instruct')
+        
         self.no_ai = no_ai
+        # Allow CLI override or env var to force a product type for the run
+        self.default_product_type = default_product_type or os.getenv('DEFAULT_PRODUCT_TYPE')
         
         # Setup logging
         self.logger = self._setup_logger(verbose)
+        
+        # HF model (lazy loaded)
+        self._hf_model = None
+        self._hf_tokenizer = None
+        
+        # Optional audit DB for persisting decisions
+        self.audit_db = TagAuditDB(audit_db_path) if audit_db_path else None
+        # Handle run_id: if provided, resume; else start new
+        self.run_id = run_id
+        if self.audit_db:
+            if run_id:
+                status = self.audit_db.get_run_status(run_id)
+                if not status:
+                    raise ValueError(f"Run ID {run_id} not found in audit DB")
+                if status == 'completed':
+                    raise ValueError(f"Run ID {run_id} is already completed")
+                self.logger.info(f"Resuming run {run_id}")
+            else:
+                config_dict = {
+                    'no_ai': no_ai,
+                    'verbose': verbose,
+                    'default_product_type': default_product_type,
+                    'audit_db_path': audit_db_path
+                }
+                self.run_id = self.audit_db.start_run(config=config_dict)
+                self.logger.info(f"Started new run {self.run_id}")
         
         self.approved_tags = self._load_approved_tags()
         self.all_approved_tags = self._flatten_approved_tags()
@@ -137,6 +189,70 @@ class ControlledTagger:
         handler.setFormatter(formatter)
         logger.addHandler(handler)
         return logger
+    
+    def _load_hf_model(self):
+        """Lazy load HuggingFace model with LoRA adapters from HF Hub"""
+        if self._hf_model is not None:
+            return self._hf_model, self._hf_tokenizer
+        
+        try:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer, BitsAndBytesConfig
+            from peft import PeftModel
+        except ImportError:
+            self.logger.error("HuggingFace backend requires: pip install torch transformers peft bitsandbytes")
+            raise
+        
+        self.logger.info(f"Loading HF model: {self.base_model} + LoRA from {self.hf_repo_id}")
+        
+        # 4-bit quantization for inference
+        bnb_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=torch.bfloat16,
+        )
+        
+        # Load base model
+        base_model = AutoModelForCausalLM.from_pretrained(
+            self.base_model,
+            quantization_config=bnb_config,
+            device_map="auto",
+            torch_dtype=torch.bfloat16,
+            token=self.hf_token,
+        )
+        
+        # Load LoRA adapters from HF Hub
+        if self.hf_repo_id:
+            self._hf_model = PeftModel.from_pretrained(base_model, self.hf_repo_id, token=self.hf_token)
+        else:
+            self._hf_model = base_model
+        
+        self._hf_tokenizer = AutoTokenizer.from_pretrained(self.base_model, token=self.hf_token)
+        self._hf_model.eval()
+        
+        self.logger.info("HF model loaded successfully")
+        return self._hf_model, self._hf_tokenizer
+    
+    def _get_ai_tags_hf(self, prompt: str) -> tuple:
+        """Get AI tags using HuggingFace model"""
+        import torch
+        
+        model, tokenizer = self._load_hf_model()
+        
+        # Format for chat model
+        input_text = f"<|user|>\n{prompt}\n<|assistant|>\n"
+        inputs = tokenizer(input_text, return_tensors="pt").to(model.device)
+        
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=256,
+                do_sample=False,
+                pad_token_id=tokenizer.eos_token_id,
+            )
+        
+        response_text = tokenizer.decode(outputs[0][inputs['input_ids'].shape[1]:], skip_special_tokens=True)
+        return response_text.strip()
         
     def _load_approved_tags(self):
         """Load approved tags structure"""
@@ -171,12 +287,13 @@ class ControlledTagger:
                     tag_to_cat[tag] = cat
         return tag_to_cat
     
-    def _create_ai_prompt(self, handle, title, description="", option1_name="", option1_value="", option2_name="", option2_value="", option3_name="", option3_value=""):
-        """Create focused AI prompt for tag suggestion"""
+    def _create_ai_prompt(self, handle, title, description="", option1_name="", option1_value="", option2_name="", option2_value="", option3_name="", option3_value="", category=None):
+        """Create category-aware AI prompt for tag suggestion with confidence scoring"""
         
         rules_text = "\n".join(f"- {rule}" for rule in self.rules.values())
         
-        prompt = f"""You are a vaping product expert. Analyze this product and suggest ONLY tags from the approved list.
+        # Base prompt structure
+        base_prompt = f"""You are a vaping and CBD product expert. Analyze this product and suggest ONLY tags from the approved list.
 
 PRODUCT HANDLE: {handle}
 PRODUCT TITLE: {title}
@@ -191,13 +308,108 @@ APPROVED TAGS (choose only from these):
 RULES:
 {rules_text}
 
-Respond with ONLY a JSON array of suggested tags:
-["tag1", "tag2", "tag3"]"""
+Respond with ONLY a JSON object containing:
+- "tags": array of suggested tags
+- "confidence": number from 0.0 to 1.0 indicating your HONEST confidence level
+- "reasoning": brief explanation of your tagging decisions
 
-        return prompt
+CONFIDENCE GUIDELINES (be honest, don't always say 0.95):
+- 0.95-1.0: Product explicitly states tags (e.g., "Nic Salt" in title = nic_salt tag)
+- 0.80-0.94: Strong evidence from multiple sources (title + description agree)
+- 0.60-0.79: Reasonable inference but some ambiguity
+- 0.40-0.59: Educated guess, limited information
+- Below 0.40: Very uncertain, missing key information
+
+Format: {{"tags": ["tag1", "tag2"], "confidence": 0.75, "reasoning": "brief explanation"}}"""
+
+        # Category-specific enhancements
+        if category == 'CBD':
+            cbd_examples = """
+EXAMPLES FOR CBD PRODUCTS (note varying confidence based on clarity):
+- "CBD Tincture 1000mg Full Spectrum" → tags: ["tincture", "full_spectrum"], confidence: 0.95 (both form and spectrum explicit)
+- "CBD Gummies 500mg Broad Spectrum" → tags: ["gummy", "broad_spectrum"], confidence: 0.93 (clear product type and spectrum)
+- "CBD Oil Capsules 25mg Isolate" → tags: ["capsule", "isolate"], confidence: 0.92 (explicit form and spectrum)
+- "CBD Topical Cream 1000mg" → tags: ["topical"], confidence: 0.78 (form clear, spectrum missing)
+- "CBD Patches 20mg Transdermal" → tags: ["patch"], confidence: 0.80 (form clear, spectrum not stated)
+- "CBD Beverage Energy Drink 20mg" → tags: ["beverage"], confidence: 0.75 (form implied, spectrum unknown)
+- "CBD Edible Cookies 500mg" → tags: ["edible"], confidence: 0.72 (edible form, spectrum not mentioned)
+- "Premium CBD Oil" → tags: ["oil"], confidence: 0.55 (no strength, no spectrum, vague title)
+- "CBD 1000mg" → tags: [], confidence: 0.45 (strength only, form and spectrum unknown)
+
+CONSISTENCY EXAMPLES (tag similar products the same way):
+- "Realest CBD 3000mg CBG Isolate" → tags: ["cbg", "isolate"], confidence: 0.95 (explicit isolate)
+- "Realest CBD 2000mg CBG Isolate" → tags: ["cbg", "isolate"], confidence: 0.95 (explicit isolate)
+- "Orange County CBD 200mg Gummies" → tags: ["gummy"], confidence: 0.68 (spectrum not stated, need description)
+- "CBD Asylum Infuse 5000mg Oil" → tags: ["oil"], confidence: 0.65 (spectrum unclear, "Infuse" ambiguous)
+- "CBD Brothers Pure Blue 750mg Capsules" → tags: ["capsule"], confidence: 0.70 ("Pure" could mean isolate but uncertain)
+- "Voyager 900mg CBD Soft Gels" → tags: ["capsule"], confidence: 0.73 (soft gels = capsule, spectrum needs description check)
+
+CBD FORM DETECTION RULES:
+- tincture: liquid drops, oil, sublingual, under tongue, liquid extract
+- capsule: pills, softgels, caplets, soft gels
+- gummy: bears, candies, chews, edibles that are not cookies/brownies
+- topical: cream, balm, salve, lotion, rub, gel, roll-on
+- patch: transdermal, skin patches, patches
+- beverage: drink, shot, sparkling, energy drink, tea, coffee
+- edible: cookies, brownies, baked goods (not gummies), chocolate
+- paste: crumble, shatter, wax, concentrate, raw paste
+- oil: hemp oil, MCT oil, natural oil (when specified as oil)"""
+            
+            base_prompt = base_prompt.replace("Respond with ONLY a JSON object", f"{cbd_examples}\n\nRespond with ONLY a JSON object")
+            
+        elif category == 'e-liquid':
+            eliquid_examples = """
+EXAMPLES FOR E-LIQUID PRODUCTS (note confidence varies with information clarity):
+- "20mg Nic Salt 50VG/50PG Fruit Punch" → tags: ["nic_salt", "50/50", "fruity"], confidence: 0.96 (all info explicit)
+- "10ml 70VG/30PG Freebase 18mg Tobacco" → tags: ["freebase_nicotine", "70/30", "tobacco"], confidence: 0.94 (clear info)
+- "3mg 100% VG Shortfill 120ml" → tags: ["shortfill", "100/0"], confidence: 0.82 (nic type inferred from low mg + shortfill)
+- "Berry Blast E-Liquid 10ml" → tags: ["fruity"], confidence: 0.58 (flavour guess, no nic type or ratio)
+- "Premium Vape Juice" → tags: [], confidence: 0.35 (insufficient information to tag)
+- "Strawberry 20mg" → tags: ["fruity"], confidence: 0.52 (flavour likely, nic type unclear - salt or freebase?)
+
+VG/PG RATIO DETECTION PATTERNS:
+- Standard: 50/50, 70/30, 80/20, 60/40, 30/70, 20/80
+- Text formats: "50VG/50PG", "70VG 30PG", "VG/PG 60/40", "50% VG 50% PG"
+- Compact: "7030", "VG70PG30", "70-30"
+- Descriptive: "high VG", "max VG", "balanced", "mouth to lung ratio"
+- Shortfill bottles: typically 80/20 or higher VG content
+
+CONSISTENCY EXAMPLES:
+- "Nic Salt 20mg 50VG/50PG" → tags: ["nic_salt", "50/50"], confidence: 0.94 (explicit)
+- "Freebase 18mg 70VG/30PG" → tags: ["freebase_nicotine", "70/30"], confidence: 0.92 (explicit)
+- "Shortfill 0mg 100% VG" → tags: ["shortfill", "100/0"], confidence: 0.88 (0mg confirms shortfill, ratio explicit)
+- "Shortfill 3mg 100% VG" → tags: ["shortfill", "100/0"], confidence: 0.78 (shortfill with 3mg unusual, may be mislabeled)
+- "10ml E-Liquid" → tags: [], confidence: 0.42 (no details to tag)"""
+            
+            base_prompt = base_prompt.replace("Respond with ONLY a JSON object", f"{eliquid_examples}\n\nRespond with ONLY a JSON object")
+            
+        elif category == 'pod':
+            pod_examples = """
+EXAMPLES FOR POD PRODUCTS (confidence based on information clarity):
+- "2ml Replacement Pods 20mg Nic Salt" → tags: ["replacement_pod", "2ml", "nic_salt"], confidence: 0.93 (clear info)
+- "Prefilled Pods 1.8ml 50VG/50PG" → tags: ["prefilled_pod", "1.8ml", "50/50"], confidence: 0.90 (explicit)
+- "Compatible Pods" → tags: ["replacement_pod"], confidence: 0.62 (probably replacement, but could be prefilled)
+- "Pods 2 Pack" → tags: [], confidence: 0.48 (insufficient - prefilled or replacement? capacity?)
+
+POD CAPACITY DETECTION:
+- Common sizes: 1.5ml, 1.8ml, 2ml, 2.5ml, 3ml, 4ml
+- Look for patterns: "2ml pod", "1.8ml capacity", "3ml cartridge"
+- Replacement pods: usually 1.8ml, 2ml, 2.5ml
+- Prefilled pods: various sizes, check product specs
+
+CONSISTENCY EXAMPLES:
+- "VooPoo Replacement Pods 2ml" → tags: ["replacement_pod", "2ml"], confidence: 0.91 (replacement explicit, capacity clear)
+- "VooPoo Replacement Pods" → tags: ["replacement_pod"], confidence: 0.82 (replacement explicit, capacity unknown)
+- "Juul Compatible Pods 1.7ml" → tags: ["replacement_pod", "1.7ml"], confidence: 0.78 (compatible usually = replacement)
+- "Pod Cartridges" → tags: [], confidence: 0.45 (too ambiguous - prefilled or replacement?)"""
+            
+            base_prompt = base_prompt.replace("Respond with ONLY a JSON object", f"{pod_examples}\n\nRespond with ONLY a JSON object")
+
+        return base_prompt
     
-    def get_ai_tags(self, product_or_handle, title=None, description=""):
-        """Get AI tag suggestions using controlled vocabulary"""
+    def get_ai_tags(self, product_or_handle, title=None, description="", category=None):
+        """Get AI tag suggestions using controlled vocabulary with category-aware prompting and confidence scoring.
+        Returns tuple: (valid_tags, ai_metadata) where ai_metadata contains prompt, response, confidence, reasoning."""
         
         if isinstance(product_or_handle, dict):
             product = product_or_handle
@@ -214,37 +426,67 @@ Respond with ONLY a JSON array of suggested tags:
             handle = product_or_handle
             option1_name = option1_value = option2_name = option2_value = option3_name = option3_value = ""
         
+        ai_metadata = {
+            'prompt': None,
+            'model_output': None,
+            'confidence': None,
+            'reasoning': None
+        }
+        
         if self.no_ai:
-            return []
+            return [], ai_metadata
         
         try:
-            prompt = self._create_ai_prompt(handle, title, description, option1_name, option1_value, option2_name, option2_value, option3_name, option3_value)
+            prompt = self._create_ai_prompt(handle, title, description, option1_name, option1_value, option2_name, option2_value, option3_name, option3_value, category)
+            ai_metadata['prompt'] = prompt
             
-            response = ollama.chat(
-                model=self.ollama_model,
-                messages=[{'role': 'user', 'content': prompt}]
-            )
-            
-            # Parse AI response
-            response_text = response['message']['content'].strip()
-            
-            # Extract JSON array from response
-            import re
-            json_match = re.search(r'\[.*?\]', response_text, re.DOTALL)
-            if json_match:
-                suggested_tags = json.loads(json_match.group())
+            # Route to appropriate backend
+            if self.model_backend == 'huggingface':
+                response_text = self._get_ai_tags_hf(prompt)
             else:
-                return []
+                # Default: Ollama
+                response = ollama.chat(
+                    model=self.ollama_model,
+                    messages=[{'role': 'user', 'content': prompt}]
+                )
+                response_text = response['message']['content'].strip()
             
-            # Validate all suggested tags are approved
-            valid_tags = [tag for tag in suggested_tags if tag in self.all_approved_tags]
+            ai_metadata['model_output'] = response_text
             
-            self.logger.info(f"AI suggested {len(suggested_tags)} tags, {len(valid_tags)} valid: {valid_tags}")
-            return valid_tags
+            # Extract JSON object from response
+            import re
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                try:
+                    ai_response = json.loads(json_match.group())
+                    suggested_tags = ai_response.get('tags', [])
+                    confidence = ai_response.get('confidence', 0.5)
+                    reasoning = ai_response.get('reasoning', '')
+                    
+                    ai_metadata['confidence'] = confidence
+                    ai_metadata['reasoning'] = reasoning
+                    
+                    # Only use high-confidence suggestions (threshold: 0.7)
+                    if confidence >= 0.7:
+                        valid_tags = [tag for tag in suggested_tags if tag in self.all_approved_tags]
+                        self.logger.info(f"AI suggested {len(suggested_tags)} tags (confidence: {confidence:.2f}), {len(valid_tags)} valid: {valid_tags}")
+                        if reasoning:
+                            self.logger.debug(f"AI reasoning: {reasoning}")
+                        return valid_tags, ai_metadata
+                    else:
+                        self.logger.info(f"AI confidence too low ({confidence:.2f}), skipping suggestions")
+                        return [], ai_metadata
+                        
+                except json.JSONDecodeError:
+                    self.logger.warning(f"Failed to parse AI JSON response: {response_text[:200]}...")
+                    return [], ai_metadata
+            else:
+                self.logger.warning(f"No JSON found in AI response: {response_text[:200]}...")
+                return [], ai_metadata
             
         except Exception as e:
             self.logger.error(f"AI tagging error: {e}")
-            return []
+            return [], ai_metadata
     
     def get_rule_based_tags(self, handle, title, description=""):
         """Extract obvious tags using rules"""
@@ -263,6 +505,9 @@ Respond with ONLY a JSON array of suggested tags:
         elif 'coil' in handle_title:
             rule_tags.append('coil')
             forced_category = 'coil'
+        elif 'cbd' in handle_title or 'cbg' in handle_title:
+            rule_tags.append('CBD')
+            forced_category = 'CBD'
         elif 'e-liquid' in handle_title or 'liquid' in handle_title or ('nic' in handle_title and 'salt' in handle_title) or 'salt' in handle_title or 'mg' in handle_title:
             rule_tags.append('e-liquid')
             forced_category = 'e-liquid'
@@ -294,16 +539,32 @@ Respond with ONLY a JSON array of suggested tags:
                 rule_tags.append('replacement_glass')
             # Add more as needed
         
-        # Nicotine strength detection
-        mg_matches = re.findall(r'(\d+)mg', text)
+        # Nicotine strength detection (range-based)
+        mg_matches = re.findall(r'(\d+(?:\.\d+)?)mg', text)
         if mg_matches:
             # Skip if CBD/CBG
             if 'cbd' in text or 'cbg' in text:
                 pass
             else:
-                strengths = [f"{m}mg" for m in mg_matches if f"{m}mg" in self.approved_tags.get('nicotine_strength', {}).get('tags', [])]
-                if strengths:
-                    rule_tags.append(strengths[0])  # Take first valid strength
+                nicotine_config = self.approved_tags.get('nicotine_strength', {})
+                range_config = nicotine_config.get('range')
+                if range_config:
+                    min_val = range_config.get('min', 0)
+                    max_val = range_config.get('max', 20)
+                    unit = range_config.get('unit', 'mg')
+                    for mg in mg_matches:
+                        try:
+                            mg_value = float(mg)
+                            if min_val <= mg_value <= max_val:
+                                rule_tags.append(f"{mg}{unit}")
+                                break
+                        except ValueError:
+                            continue
+                else:
+                    # Fallback to tag-based validation (legacy)
+                    strengths = [f"{m}mg" for m in mg_matches if f"{m}mg" in self.approved_tags.get('nicotine_strength', {}).get('tags', [])]
+                    if strengths:
+                        rule_tags.append(strengths[0])  # Take first valid strength
         
         # Nicotine type detection
         if 'nic' in text and 'salt' in text:
@@ -311,13 +572,71 @@ Respond with ONLY a JSON array of suggested tags:
         
         # CBD strength detection
         if 'cbd' in text or 'cbg' in text:
+            # CBD form detection - enhanced with edge cases
+            if any(word in text for word in ['tincture', 'drop', 'liquid', 'oil', 'extract', 'sublingual']):
+                rule_tags.append('tincture')
+            elif any(word in text for word in ['capsule', 'cap', 'softgel', 'soft gel', 'soft-gel', 'gel cap']):
+                rule_tags.append('capsule')
+            elif any(word in text for word in ['gummy', 'bear', 'candy', 'chew', 'jelly']):
+                rule_tags.append('gummy')
+            elif any(word in text for word in ['topical', 'cream', 'balm', 'salve', 'lotion', 'rub', 'gel', 'roll-on', 'roller']):
+                rule_tags.append('topical')
+            elif any(word in text for word in ['paste', 'crumble', 'shatter', 'wax', 'concentrate', 'raw paste']):
+                rule_tags.append('paste')
+            elif any(word in text for word in ['shot', 'beverage', 'drink', 'sparkling', 'energy drink', 'soda']):
+                rule_tags.append('beverage')
+            elif any(word in text for word in ['tea', 'coffee', 'infusion', 'chai']):
+                rule_tags.append('beverage')
+            elif any(word in text for word in ['edible', 'cookie', 'brownie', 'chocolate', 'bar']):
+                rule_tags.append('edible')
+            elif any(word in text for word in ['patch', 'transdermal', 'skin patch']):
+                rule_tags.append('patch')
+            else:
+                # Default to tincture for CBD products without specific form indicators
+                rule_tags.append('tincture')
+            
+            # CBD type detection
+            if 'full spectrum' in text or 'full-spectrum' in text:
+                rule_tags.append('full_spectrum')
+            elif 'broad spectrum' in text or 'broad-spectrum' in text:
+                rule_tags.append('broad_spectrum')
+            elif 'isolate' in text:
+                rule_tags.append('isolate')
+            elif 'cbg' in text:
+                rule_tags.append('cbg')
+            elif 'cbda' in text:
+                rule_tags.append('cbda')
+            else:
+                # Default to full spectrum if not specified
+                rule_tags.append('full_spectrum')
+            
             mg_matches = re.findall(r'(\d+)mg', text)
             if mg_matches:
-                for mg in mg_matches:
-                    cbd_tag = f"{mg}mg"
-                    if cbd_tag in self.approved_tags.get('cbd_strength', {}).get('tags', []):
-                        rule_tags.append(cbd_tag)
-                        break
+                cbd_strength_config = self.approved_tags.get('cbd_strength', {})
+                range_config = cbd_strength_config.get('range')
+                
+                if range_config:
+                    # Use range-based validation
+                    min_val = range_config.get('min', 0)
+                    max_val = range_config.get('max', 50000)
+                    unit = range_config.get('unit', 'mg')
+                    
+                    for mg in mg_matches:
+                        try:
+                            mg_value = int(mg)
+                            if min_val <= mg_value <= max_val:
+                                rule_tags.append(f"{mg}{unit}")
+                                break
+                        except ValueError:
+                            continue
+                else:
+                    # Fallback to tag-based validation (legacy)
+                    for mg in mg_matches:
+                        cbd_tag = f"{mg}mg"
+                        if cbd_tag in cbd_strength_config.get('tags', []):
+                            rule_tags.append(cbd_tag)
+                            break
+            
             # Check for unlimited
             if 'unlimited' in text.lower():
                 if 'unlimited mg' in self.approved_tags.get('cbd_strength', {}).get('tags', []):
@@ -329,20 +648,70 @@ Respond with ONLY a JSON array of suggested tags:
                 rule_tags.append(size)
                 break
         
-        # VG/PG ratio detection
-        ratio_matches = re.findall(r'(\d+)\s*vg\s*[/-]\s*(\d+)\s*pg', text)
+        # VG/PG ratio detection - advanced patterns
+        ratio_matches = re.findall(r'(\d+)\s*vg\s*[/-]\s*(\d+)\s*pg', text, re.IGNORECASE)
         if not ratio_matches:
             # Try alternative format like "50/50 VG/PG"
-            ratio_matches = re.findall(r'(\d+)[/-](\d+)\s*vg[/-]pg', text)
+            ratio_matches = re.findall(r'(\d+)[/-](\d+)\s*vg[/-]pg', text, re.IGNORECASE)
+        if not ratio_matches:
+            # Try "VG/PG 50/50" format
+            ratio_matches = re.findall(r'vg[/-]pg\s*(\d+)[/-](\d+)', text, re.IGNORECASE)
+        if not ratio_matches:
+            # Try "50% VG / 50% PG" format
+            ratio_matches = re.findall(r'(\d+)%?\s*vg\s*[/-]\s*(\d+)%?\s*pg', text, re.IGNORECASE)
+        if not ratio_matches:
+            # Try "VG:PG 50:50" format
+            ratio_matches = re.findall(r'vg\s*:\s*pg\s*(\d+)\s*:\s*(\d+)', text, re.IGNORECASE)
+        if not ratio_matches:
+            # Try "50VG 50PG" format (no separator)
+            ratio_matches = re.findall(r'(\d+)\s*vg\s+(\d+)\s*pg', text, re.IGNORECASE)
+        if not ratio_matches:
+            # Try percentage format "50% VG 50% PG"
+            percent_matches = re.findall(r'(\d+)%\s*vg.*?(\d+)%\s*pg', text, re.IGNORECASE)
+            if percent_matches:
+                ratio_matches = percent_matches
+        if not ratio_matches:
+            # Try "70VG30PG" format (no spaces)
+            ratio_matches = re.findall(r'(\d+)vg(\d+)pg', text, re.IGNORECASE)
+        if not ratio_matches:
+            # Try "VG 70 / PG 30" format
+            ratio_matches = re.findall(r'vg\s+(\d+)[/-]\s*pg\s+(\d+)', text, re.IGNORECASE)
+        if not ratio_matches:
+            # Try "70/30 VG PG" format
+            ratio_matches = re.findall(r'(\d+)[/-](\d+)\s*vg\s*pg', text, re.IGNORECASE)
+        if not ratio_matches:
+            # Try "70VG/30PG" format
+            ratio_matches = re.findall(r'(\d+)vg[/-](\d+)pg', text, re.IGNORECASE)
+        if not ratio_matches:
+            # Try "VG70PG30" format (compact)
+            ratio_matches = re.findall(r'vg(\d+)pg(\d+)', text, re.IGNORECASE)
+        if not ratio_matches:
+            # Try "70-30" with VG/PG context
+            if 'vg' in text and 'pg' in text:
+                dash_matches = re.findall(r'(\d+)[/-](\d+)', text)
+                if dash_matches:
+                    ratio_matches = dash_matches
+        
         if ratio_matches:
             for vg, pg in ratio_matches:
-                ratio = f"{vg}/{pg}"
-                if ratio in self.approved_tags.get('vg_ratio', {}).get('tags', []):
-                    rule_tags.append(ratio)
-                    break  # Take first valid ratio
+                # Handle cases where VG/PG might be swapped
+                try:
+                    vg_val = int(vg)
+                    pg_val = int(pg)
+                    # Ensure VG >= PG (typical ratios)
+                    if pg_val > vg_val:
+                        vg, pg = pg, vg
+                    ratio = f"{vg}/{pg}"
+                    if ratio in self.approved_tags.get('vg_ratio', {}).get('tags', []):
+                        rule_tags.append(ratio)
+                        break  # Take first valid ratio
+                except ValueError:
+                    continue
         
         # Pure VG detection
-        if not ratio_matches and 'vg' in text and 'pg' not in text:
+        if not ratio_matches and ('100% vg' in text.lower() or 'pure vg' in text.lower() or 'max vg' in text.lower()):
+            rule_tags.append('100/0')
+        elif not ratio_matches and 'vg' in text and 'pg' not in text:
             rule_tags.append('100/0')
         
         # Shortfill detection
@@ -390,6 +759,16 @@ Respond with ONLY a JSON array of suggested tags:
                 rule_tags.append('pod')
             # Also set category
             rule_tags.append('pod')
+            
+            # Pod capacity detection
+            capacity_matches = re.findall(r'(\d+(?:\.\d+)?)\s*ml', text, re.IGNORECASE)
+            if capacity_matches:
+                capacity_config = self.approved_tags.get('capacity', {})
+                for cap in capacity_matches:
+                    cap_tag = f"{cap}ml"
+                    if cap_tag in capacity_config.get('tags', []):
+                        rule_tags.append(cap_tag)
+                        break  # Take first valid capacity
         
         # Device style detection
         if 'pen' in text and 'style' in text:
@@ -464,14 +843,29 @@ Respond with ONLY a JSON array of suggested tags:
         
         self.logger.info(f"Processing {len(products)} products")
         
+        # Load already processed products if resuming
+        processed_handles = set()
+        if self.audit_db and self.run_id:
+            cur = self.audit_db.conn.cursor()
+            cur.execute('SELECT handle FROM products WHERE run_id = ?', (self.run_id,))
+            processed_handles = {row[0] for row in cur.fetchall()}
+            self.logger.info(f"Found {len(processed_handles)} already processed products")
+        
         # Process each product
         tagged_products = []
         untagged_products = []
         untagged_originals = []
         
         for i, product in enumerate(products, 1):
+            handle = product.get('Handle', '')
+            
+            # Skip if already processed
+            if handle in processed_handles:
+                self.logger.info(f"Skipping already processed product: {handle}")
+                continue
+            
             product_dict = {
-                'handle': product.get('Handle', ''),
+                'handle': handle,
                 'title': product.get('Title', ''),
                 'description': product.get('Body (HTML)', ''),
                 'option1_name': product.get('Option1 Name', ''),
@@ -482,11 +876,25 @@ Respond with ONLY a JSON array of suggested tags:
                 'option3_value': product.get('Option3 Value', ''),
             }
             
-            # Get AI suggestions
-            ai_tags = self.get_ai_tags(product_dict)
-            
-            # Get rule-based tags
+            # Get rule-based tags first to determine category
             rule_tags, forced_category = self.get_rule_based_tags(product_dict['handle'], product_dict['title'], product_dict['description'])
+            
+            # Determine preliminary product category for AI prompting
+            preliminary_category = None
+            max_priority = -1
+            for tag in rule_tags:
+                if tag in self.category_tags:
+                    priority = self.category_priority.get(tag, 0)
+                    if priority > max_priority:
+                        max_priority = priority
+                        preliminary_category = tag
+            
+            # Override with forced category from handle
+            if forced_category:
+                preliminary_category = forced_category
+            
+            # Get AI suggestions with category-aware prompting (returns tuple with metadata)
+            ai_tags, ai_metadata = self.get_ai_tags(product_dict, category=preliminary_category)
             
             # Combine and deduplicate
             all_tags = list(set(ai_tags + rule_tags))
@@ -515,7 +923,7 @@ Respond with ONLY a JSON array of suggested tags:
                             if pg >= 50:
                                 inferred_tags.append('mouth-to-lung')
                             elif 60 <= vg <= 70:
-                                inferred_tags.append('restricted_direct_to_lung')
+                                inferred_tags.append('restricted-direct-to-lung')
                             elif vg >= 70:
                                 inferred_tags.append('direct-to-lung')
                         except ValueError:
@@ -527,6 +935,15 @@ Respond with ONLY a JSON array of suggested tags:
             tag_by_cat = defaultdict(list)
             for tag in all_tags:
                 cat = self.tag_to_category.get(tag)
+                
+                # Special handling for range-based categories
+                if not cat:
+                    # Check if tag matches CBD strength pattern (e.g., "3000mg")
+                    if re.match(r'^\d+mg$', tag):
+                        cbd_config = self.approved_tags.get('cbd_strength', {})
+                        if cbd_config.get('range') and product_category == 'CBD':
+                            cat = 'cbd_strength'
+                
                 if cat == 'category':
                     continue
                 cat_data = self.approved_tags.get(cat, {})
@@ -558,21 +975,47 @@ Respond with ONLY a JSON array of suggested tags:
             
             self.logger.info(f"Product: {product_dict['handle']} | Product category: {product_category} | Final tags: {final_tags}")
             
+            # Insert into audit DB with AI metadata
+            if self.audit_db and self.run_id:
+                self.audit_db.insert_product(
+                    run_id=self.run_id,
+                    handle=handle,
+                    title=product_dict['title'],
+                    csv_type=self.default_product_type or '',
+                    effective_type=product_category or '',
+                    description=product_dict['description'],
+                    rule_tags=rule_tags,
+                    ai_tags=ai_tags,
+                    final_tags=final_tags,
+                    forced_category=forced_category,
+                    device_evidence=bool('device' in final_tags),
+                    skipped=0,
+                    ai_prompt=ai_metadata.get('prompt'),
+                    ai_model_output=ai_metadata.get('model_output'),
+                    ai_confidence=ai_metadata.get('confidence'),
+                    ai_reasoning=ai_metadata.get('reasoning')
+                )
+            
             # Create output product with only required fields
             product_output = {
                 'Handle': product.get('Handle', ''),
                 'Variant SKU': product.get('Variant SKU', ''),
                 'Tags': ', '.join(final_tags)
             }
-            tagged_products.append(product_output)
-            
-            # If no tags, add to untagged
-            if not final_tags:
+            # Only add to tagged_products when we have tags — otherwise track as untagged
+            if product_output['Tags'].strip():
+                tagged_products.append(product_output)
+            else:
                 untagged_products.append(product_output)
                 untagged_originals.append(product)
             
             if i % 50 == 0:
                 self.logger.info(f"Processed {i}/{len(products)} products")
+        
+        # Complete the run if audit DB is used
+        if self.audit_db and self.run_id:
+            self.audit_db.complete_run(self.run_id)
+            self.logger.info(f"Completed run {self.run_id}")
         
         # Save tagged products
         if not output_file:
@@ -621,11 +1064,25 @@ Respond with ONLY a JSON array of suggested tags:
                 # Get rule-based tags again (in case)
                 rule_tags_secondary, forced_category_secondary = self.get_rule_based_tags(handle, title, description)
                 
-                # Get secondary AI tags
-                ai_tags_secondary = self.get_ai_tags(handle, title, description)
+                # Determine preliminary category for secondary AI
+                preliminary_category_secondary = None
+                max_priority_secondary = -1
+                for tag in rule_tags_secondary:
+                    if tag in self.category_tags:
+                        priority = self.category_priority.get(tag, 0)
+                        if priority > max_priority_secondary:
+                            max_priority_secondary = priority
+                            preliminary_category_secondary = tag
                 
-                # Combine
-                all_tags = list(set(ai_tags + rule_tags))
+                # Override with forced category
+                if forced_category_secondary:
+                    preliminary_category_secondary = forced_category_secondary
+                
+                # Get secondary AI tags with category-aware prompting
+                ai_tags_secondary = self.get_ai_tags(handle, title, description, category=preliminary_category_secondary)
+                
+                # Combine (use secondary results, not outer variables)
+                all_tags = list(set(ai_tags_secondary + rule_tags_secondary))
                 
                 # Determine product category with priority (using only rule_tags for secondary)
                 rule_tags_secondary, forced_category_secondary = self.get_rule_based_tags(handle, title, description)
@@ -652,7 +1109,7 @@ Respond with ONLY a JSON array of suggested tags:
                                 if pg >= 50:
                                     inferred_tags.append('mouth-to-lung')
                                 elif 60 <= vg <= 70:
-                                    inferred_tags.append('restricted_direct_to_lung')
+                                    inferred_tags.append('restricted-direct-to-lung')
                                 elif vg >= 70:
                                     inferred_tags.append('direct-to-lung')
                             except ValueError:
@@ -732,7 +1189,10 @@ if __name__ == "__main__":
     tagger = ControlledTagger(
         config_file=args.config,
         no_ai=args.no_ai,
-        verbose=args.verbose
+        verbose=args.verbose,
+        default_product_type=args.type,
+        audit_db_path=args.audit_db,
+        run_id=args.run_id
     )
     
     # Determine input file

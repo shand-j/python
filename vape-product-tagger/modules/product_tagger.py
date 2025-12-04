@@ -76,9 +76,36 @@ class ProductTagger:
         """
         if not text:
             return False
-        
+
         text = text.lower()
-        return any(keyword.lower() in text for keyword in keywords)
+
+        # Build a safe regex for each keyword to match word boundaries and some punctuation
+        for keyword in keywords:
+            if not keyword:
+                continue
+            k = keyword.lower().strip()
+
+            # Escape regex metacharacters but allow loose matching for punctuation/spacing
+            escaped = re.escape(k)
+
+            # Support keywords that contain spaces (phrase match) and simple plurals
+            # Match as whole word or phrase using word boundaries on ends
+            pattern = r"(?<!\w)" + escaped + r"(?!\w)"
+
+            try:
+                if re.search(pattern, text):
+                    return True
+                # Also try a plural form if single word and not ending with s
+                if ' ' not in k and not k.endswith('s'):
+                    plural_pat = r"(?<!\w)" + re.escape(k + 's') + r"(?!\w)"
+                    if re.search(plural_pat, text):
+                        return True
+            except re.error:
+                # Fallback to safe substring search if regex fails for some reason
+                if k in text:
+                    return True
+
+        return False
     
     def tag_device_type(self, product_data: Dict) -> List[str]:
         """
@@ -100,7 +127,7 @@ class ProductTagger:
         
         return list(tags)
     
-    def tag_device_form(self, product_data: Dict) -> List[str]:
+    def tag_device_form(self, product_data: Dict, device_type_tags: List[str] = None) -> List[str]:
         """
         Tag device form based on product data
         
@@ -112,6 +139,21 @@ class ProductTagger:
         """
         tags = set()
         text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+
+        # If caller provided device_type_tags, use it; otherwise compute. We only want
+        # device-form tags if there's evidence the product is a device/hardware.
+        if device_type_tags is None:
+            device_type_tags = self.tag_device_type(product_data)
+
+        # If no device-type evidence, check for some strong device cue keywords
+        device_cues = [
+            'battery', 'coil', 'pod', 'cartridge', 'kit', 'charger', 'prefilled',
+            'refill', 'atomizer', 'vape', 'device', 'mod'
+        ]
+
+        has_device_evidence = bool(device_type_tags) or self._match_keywords(text, device_cues)
+        if not has_device_evidence:
+            return []
         
         # Check each device form
         for form, data in self.taxonomy.DEVICE_FORMS.items():
@@ -235,7 +277,7 @@ class ProductTagger:
         
         # Rule-based tagging
         device_type_tags = self.tag_device_type(product_data)
-        device_form_tags = self.tag_device_form(product_data)
+        device_form_tags = self.tag_device_form(product_data, device_type_tags=device_type_tags)
         flavor_tags = self.tag_flavors(product_data)
         nicotine_tags = self.tag_nicotine(product_data)
         compliance_tags = self.tag_compliance(product_data)

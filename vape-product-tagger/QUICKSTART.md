@@ -1,215 +1,266 @@
 # Quick Start Guide - Vape Product Tagger
 
-Get started with the Vape Product Tagger in 5 minutes!
+Get started with AI-powered product tagging in 5 minutes!
 
 ## Prerequisites
 
-- Python 3.8 or higher installed
-- A Shopify product export CSV file
-- (Optional) Ollama installed for AI-powered tagging
+- Python 3.10+
+- [Ollama](https://ollama.ai) installed (for AI tagging)
+- A Shopify product export CSV
 
 ## Step 1: Setup (2 minutes)
 
-### Automated Setup
-
-**Linux/Mac**:
 ```bash
 cd vape-product-tagger
-chmod +x setup.sh
-./setup.sh
-```
 
-**Windows**:
-```bash
-cd vape-product-tagger
+# Linux/Mac
+chmod +x setup.sh && ./setup.sh
+
+# Windows
 setup.bat
 ```
 
-This will:
-- Create a virtual environment
-- Install all dependencies
-- Create configuration file
-- Set up necessary directories
+This creates a virtual environment, installs dependencies, and generates `config.env`.
 
-## Step 2: Activate Virtual Environment (30 seconds)
+## Step 2: Activate Environment
 
-**Linux/Mac**:
 ```bash
+# Linux/Mac
 source venv/bin/activate
-```
 
-**Windows**:
-```bash
+# Windows
 venv\Scripts\activate.bat
 ```
 
-## Step 3: Configure (1 minute)
+## Step 3: Start Ollama
 
-Edit `config.env` with your preferences:
-
-```env
-# For AI-powered tagging (optional)
-OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=gpt-oss:latest
-ENABLE_AI_TAGGING=true
-
-# For rule-based only (faster, no AI required)
-ENABLE_AI_TAGGING=false
-```
-
-Save the file.
-
-## Step 4: Run (1 minute)
-
-### Basic Usage (Rule-Based Tagging)
-
-```bash
-python main.py --input your_products.csv
-```
-
-This will:
-- Import products from your CSV
-- Apply intelligent rule-based tagging
-- Export enhanced CSV to `output/` directory
-
-### With AI Enhancement
-
-**First, start Ollama** (in another terminal):
+In a separate terminal:
 ```bash
 ollama serve
 ```
 
-**Then run**:
+Pull a model if you haven't:
 ```bash
-python main.py --input your_products.csv
+ollama pull llama3.1
 ```
 
-### Generate Collections
+## Step 4: Run the Tagger
 
+### Basic Usage
 ```bash
-python main.py --input your_products.csv --collections
+python main.py --input input/your_products.csv
 ```
 
-This creates:
-- Enhanced product CSV in `output/`
-- Collections JSON in `output/`
-
-## Step 5: Review Results (30 seconds)
-
-Check the `output/` directory for:
-- `shopify_tagged_products_[timestamp].csv` - Import this into Shopify
-- `collections_[timestamp].json` - Collection definitions (if using --collections)
-
-Check the `logs/` directory for processing details.
-
-## Quick Examples
-
-### Example 1: Fast Rule-Based Tagging
+### With Audit Database (Recommended)
 ```bash
-python main.py --input products.csv --no-ai
+python main.py --input input/products.csv --audit-db output/audit.sqlite3
 ```
 
-### Example 2: AI-Enhanced with Collections
+### Rule-Based Only (No AI)
 ```bash
-python main.py --input products.csv --collections --verbose
+python main.py --input input/products.csv --no-ai
 ```
 
-### Example 3: Export to JSON
+### Limit for Testing
 ```bash
-python main.py --input products.csv --format json
+python main.py --input input/products.csv --limit 10 --verbose
 ```
+
+## Step 5: Review Results
+
+Check `output/` directory:
+- `controlled_tagged_products.csv` - Tagged products for Shopify import
+- `controlled_untagged_products.csv` - Products that couldn't be tagged
 
 ## What Gets Tagged?
 
-The tagger automatically identifies and tags:
+### Product Categories
+- **E-Liquid**: nic_salt, freebase_nicotine, shortfill
+- **CBD**: tincture, gummy, capsule, topical, full_spectrum, broad_spectrum, isolate
+- **Devices**: disposable, pod_system, box_mod, coil, tank
+- **Accessories**: battery, charger, case
 
-### Device Information
-- Type: Disposable, Pod System, Mod, etc.
-- Form: Pen Style, Box Mod, Compact, etc.
+### Automatic Detection
+- **VG/PG Ratios**: 50/50, 70/30, 80/20, etc.
+- **Nicotine Strength**: 0-20mg range
+- **CBD Strength**: 0-50000mg range
+- **Flavors**: fruity, tobacco, menthol, desserts/bakery
 
-### Flavors
-- Main Families: Fruit, Dessert, Menthol, Tobacco, Beverage
-- Sub-categories: Berry, Tropical, Custard, Cool, etc.
-- Specific flavors: Strawberry, Mango, Vanilla, etc.
+## Example
 
-### Nicotine
-- Strength: 0mg, Low (3-6mg), Medium (9-12mg), High (18mg+)
-- Type: Freebase, Salt Nicotine
+**Input**: `"Blue Raspberry 20mg Nic Salt 50VG/50PG 10ml"`
 
-### Compliance
-- Age restrictions (18+)
-- Regional compliance (US, EU)
-- Nicotine warnings
-- Shipping restrictions
+**Output Tags**: `e-liquid, nic_salt, 20mg, 50/50, fruity, 10ml`
 
-## Sample Product Tagging
+## Command Reference
 
-**Input**: "Tropical Mango Ice Disposable Vape 0mg"
+```bash
+python main.py --help
 
-**Output Tags**:
-- Disposable, Single Use, Vape
-- Fruit, Tropical, Mango
-- Ice, Cool, Cooling Effect
-- 0mg, Zero Nicotine, No Nicotine
-- Compact, Disposable
-- 18+, Age Restricted, US Compliant
+# Key options:
+--input, -i     Input CSV file (required)
+--output, -o    Output CSV file
+--no-ai         Disable AI (rule-based only)
+--limit, -l     Process only first N products
+--verbose, -v   Enable detailed logging
+--audit-db      SQLite path for audit logging
+--type, -t      Override product type for all products
+```
 
 ## Troubleshooting
 
-### "Module not found" error
-```bash
-# Make sure virtual environment is activated
-source venv/bin/activate  # or venv\Scripts\activate.bat on Windows
-```
-
 ### "Ollama service not available"
 ```bash
-# Either start Ollama
+# Start Ollama
 ollama serve
 
-# Or disable AI tagging
+# Or run without AI
 python main.py --input products.csv --no-ai
 ```
 
-### "Input file not found"
+### "Module not found"
 ```bash
-# Check file path is correct
-ls your_products.csv  # Linux/Mac
-dir your_products.csv  # Windows
+# Ensure venv is activated
+source venv/bin/activate
+pip install -r requirements.txt
 ```
+
+### Low tagging accuracy
+1. Check `approved_tags.json` has relevant tags
+2. Review audit DB for patterns: `sqlite3 output/audit.sqlite3 "SELECT * FROM products LIMIT 5"`
+3. Adjust confidence threshold in config: `AI_CONFIDENCE_THRESHOLD=0.6`
 
 ## Next Steps
 
-1. **Review Generated Tags**: Open the output CSV and review the Tags column
-2. **Customize Taxonomy**: Edit `modules/taxonomy.py` to add your specific keywords
-3. **Fine-tune AI**: Adjust `AI_CONFIDENCE_THRESHOLD` in config.env
-4. **Import to Shopify**: Use the generated CSV to update your Shopify store
-5. **Create Collections**: Use the collections JSON to organize your products
+1. **Review Tags**: Check output CSV before Shopify import
+2. **Audit Analysis**: Run `python tag_auditor.py --audit-db output/audit.sqlite3`
+3. **Fine-tune Model**: See [Training Pipeline](#training-pipeline-advanced) below
+4. **Customize Tags**: Edit `approved_tags.json`
+
+---
+
+# Training Pipeline (Advanced)
+
+Fine-tune a model on your audit data for improved accuracy.
+
+## Prerequisites
+- Vast.ai account (GPU instances)
+- Hugging Face account (model storage)
+- 100+ tagged products in audit DB
+
+## Step 1: Export Training Data
+
+```bash
+# Generate training CSV from audit
+python tag_auditor.py --audit-db output/audit.sqlite3 --output training_data.csv
+
+# Convert to JSONL for training
+python train_tag_model.py --export --input training_data.csv --output training_data.jsonl
+```
+
+## Step 2: Train on Vast.ai
+
+1. Rent a 24GB+ VRAM instance (RTX 4090, A5000, A6000)
+2. Clone repo and setup:
+
+```bash
+git clone https://github.com/shand-j/python.git
+cd python/vape-product-tagger
+
+# Set credentials
+export HF_TOKEN=hf_your_token
+export HF_REPO_ID=your-username/vape-tagger-lora
+
+# Run training
+./setup_training.sh
+./run_training.sh --push-to-hub
+```
+
+## Step 3: Use Fine-Tuned Model
+
+Update `config.env`:
+```env
+MODEL_BACKEND=huggingface
+HF_REPO_ID=your-username/vape-tagger-lora
+HF_TOKEN=hf_your_token
+```
+
+Run tagger:
+```bash
+python main.py --input products.csv
+```
+
+---
+
+# Full Vast.ai Workflow (Tagger + Audit + Training)
+
+Run the complete pipeline on a Vast.ai GPU instance.
+
+## Quick Setup
+
+```bash
+# SSH into Vast.ai instance
+ssh -p <port> root@<vast-ip>
+
+# Install Ollama for AI inference
+curl -fsSL https://ollama.ai/install.sh | sh
+nohup ollama serve > /dev/null 2>&1 &
+ollama pull llama3.1
+
+# Clone and setup
+git clone https://github.com/shand-j/python.git
+cd python/vape-product-tagger
+pip install -r requirements.txt
+pip install -r vastai/requirements-train.txt
+```
+
+## Upload Data (from local machine)
+```bash
+scp -P <port> your_products.csv root@<vast-ip>:/workspace/data/
+```
+
+## Run Full Pipeline
+
+```bash
+# 1. Tag products with audit
+python main.py --input /workspace/data/products.csv \
+  --output /workspace/data/tagged.csv \
+  --audit-db /workspace/data/audit.sqlite3
+
+# 2. Export training data
+python tag_auditor.py --audit-db /workspace/data/audit.sqlite3 \
+  --output /workspace/data/training.csv
+python train_tag_model.py --export \
+  --input /workspace/data/training.csv \
+  --output /workspace/data/training.jsonl
+
+# 3. Train model
+huggingface-cli login --token $HF_TOKEN
+python train_tag_model.py --train \
+  --input /workspace/data/training.jsonl \
+  --epochs 3 --push-to-hub
+```
+
+## Download Results (from local machine)
+```bash
+scp -r -P <port> root@<vast-ip>:/workspace/data/ ./vast-output/
+```
+
+See [README.md](README.md#running-on-vastai-full-workflow) for detailed instructions.
+
+---
 
 ## Getting Help
 
 ```bash
-# View all command options
+# View all options
 python main.py --help
 
-# Run with verbose logging
+# Verbose logging
 python main.py --input products.csv --verbose
 
-# Check the logs
-cat logs/vape-tagger_*.log
+# Check logs
+cat logs/*.log
 ```
 
-## Pro Tips
-
-1. **Start Small**: Test with a subset of products first
-2. **Use Caching**: Enable `CACHE_AI_TAGS=true` for faster repeated processing
-3. **Parallel Processing**: Enable for large catalogs (1000+ products)
-4. **Review Before Import**: Always review tags before importing to Shopify
-5. **Customize Taxonomy**: Add your own keywords and categories in `modules/taxonomy.py`
-
-## That's It!
-
-You're now ready to tag your vaping product catalog. For more details, see:
-- [README.md](README.md) - Complete documentation
-- [TAXONOMY.md](TAXONOMY.md) - Full taxonomy reference
-- `config.env.example` - All configuration options
+See [README.md](README.md) for complete documentation.

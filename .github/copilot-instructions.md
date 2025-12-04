@@ -87,3 +87,73 @@ Setup scripts for both Unix (`setup.sh`) and Windows (`setup.bat`)
 - Config file generation from templates
 
 When working on this codebase, prioritize the modular architecture and robust error handling patterns established in the existing components.
+
+---
+
+## Vape Product Tagger Project
+
+The `vape-product-tagger/` project is an AI-powered product tagging system for Shopify vaping/CBD products with a complete training pipeline.
+
+### Architecture
+
+**Core Components:**
+- `main.py` - Main tagger with rule-based + AI tagging via Ollama or HF Hub
+- `tag_audit_db.py` - SQLite audit database capturing all tagging decisions
+- `tag_auditor.py` - Audit analysis and training data export
+- `train_tag_model.py` - QLoRA fine-tuning pipeline for Vast.ai GPU training
+- `approved_tags.json` - Controlled vocabulary with range-based validation
+
+**Model Backends:**
+- `ollama` (default) - Local inference via Ollama
+- `huggingface` - HF Hub models with LoRA adapters
+
+### Training Pipeline (Vast.ai + HF Hub)
+
+**Stack:** PyTorch + Transformers + PEFT (QLoRA) + TRL (SFTTrainer)
+
+**Workflow:**
+1. Run tagger with `--audit-db` to capture decisions + AI prompts/outputs
+2. Export training data: `python tag_auditor.py --output training.csv`
+3. Train on Vast.ai: `python train_tag_model.py --train --push-to-hub`
+4. Inference pulls LoRA adapters from HF Hub
+
+**Key Config (config.env):**
+```bash
+# Model
+BASE_MODEL=meta-llama/Meta-Llama-3.1-8B-Instruct
+MODEL_BACKEND=ollama  # or huggingface
+
+# HF Hub
+HF_TOKEN=hf_xxx
+HF_REPO_ID=username/vape-tagger-lora
+
+# QLoRA
+QUANTIZATION_BITS=4
+LORA_R=64
+LORA_ALPHA=128
+```
+
+### Vast.ai Template
+
+Custom training template in `vastai/`:
+- `Dockerfile` - PyTorch 2.1 + CUDA 12.1 + training stack
+- `template.json` - Vast.ai marketplace config (24GB+ VRAM)
+
+### Data Flow
+
+```
+Products CSV → Tagger (rule+AI) → Audit DB → Training Export
+                                      ↓
+                              Vast.ai QLoRA Training
+                                      ↓
+                              HF Hub (LoRA adapters)
+                                      ↓
+                              Production Inference
+```
+
+### Key Patterns
+
+- **Range-based validation** for nicotine_strength (0-20mg) and cbd_strength (0-50000mg)
+- **Confidence scoring** with varied examples to prevent model always outputting 0.95
+- **Category-aware prompting** with domain-specific examples (CBD, e-liquid, pod)
+- **80/20 train/val split** stratified by category for optimal accuracy tracking

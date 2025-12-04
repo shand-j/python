@@ -4,7 +4,12 @@ Handles loading and accessing application configuration
 """
 import os
 from pathlib import Path
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except Exception:
+    # Allow tests/environments without python-dotenv
+    def load_dotenv(*args, **kwargs):
+        return None
 
 
 class Config:

@@ -6,7 +6,10 @@ import logging
 import sys
 from pathlib import Path
 from datetime import datetime
-import colorlog
+try:
+    import colorlog
+except Exception:
+    colorlog = None
 
 
 def setup_logger(name='vape-tagger', log_dir='./logs', level='INFO', verbose=False):
@@ -40,22 +43,28 @@ def setup_logger(name='vape-tagger', log_dir='./logs', level='INFO', verbose=Fal
     # Clear existing handlers
     logger.handlers = []
     
-    # Console handler with color
-    console_handler = colorlog.StreamHandler(sys.stdout)
+    # Console handler with color when available, otherwise plain stream handler
+    if colorlog:
+        console_handler = colorlog.StreamHandler(sys.stdout)
+    else:
+        console_handler = logging.StreamHandler(sys.stdout)
     console_handler.setLevel(log_level)
     
-    console_format = colorlog.ColoredFormatter(
-        '%(log_color)s%(levelname)-8s%(reset)s %(blue)s[%(name)s]%(reset)s %(message)s',
-        datefmt=None,
-        reset=True,
-        log_colors={
-            'DEBUG': 'cyan',
-            'INFO': 'green',
-            'WARNING': 'yellow',
-            'ERROR': 'red',
-            'CRITICAL': 'red,bg_white',
-        }
-    )
+    if colorlog:
+        console_format = colorlog.ColoredFormatter(
+            '%(log_color)s%(levelname)-8s%(reset)s %(blue)s[%(name)s]%(reset)s %(message)s',
+            datefmt=None,
+            reset=True,
+            log_colors={
+                'DEBUG': 'cyan',
+                'INFO': 'green',
+                'WARNING': 'yellow',
+                'ERROR': 'red',
+                'CRITICAL': 'red,bg_white',
+            }
+        )
+    else:
+        console_format = logging.Formatter('%(levelname)-8s [%(name)s] %(message)s')
     console_handler.setFormatter(console_format)
     logger.addHandler(console_handler)
     
