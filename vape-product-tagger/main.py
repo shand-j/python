@@ -349,7 +349,16 @@ class ControlledTagger:
                 if key in self.approved_tags:
                     relevant_tags[key] = self.approved_tags[key]
         else:
-            relevant_tags = self.approved_tags
+            # Unknown category - send only category tags to help identify
+            relevant_tags = {'category': self.approved_tags.get('category', [])}
+        
+        # Further compress: only send tag names, not full config
+        compressed_tags = {}
+        for cat_name, cat_data in relevant_tags.items():
+            if isinstance(cat_data, dict):
+                compressed_tags[cat_name] = cat_data.get('tags', [])
+            else:
+                compressed_tags[cat_name] = cat_data
         
         # Base prompt - shortened
         base_prompt = f"""Analyze this vaping/CBD product and suggest tags from the approved list.
@@ -360,7 +369,7 @@ DESC: {desc_truncated}
 OPTIONS: {option1_name}:{option1_value} | {option2_name}:{option2_value} | {option3_name}:{option3_value}
 
 APPROVED TAGS:
-{json.dumps(relevant_tags, indent=1)}
+{json.dumps(compressed_tags)}
 
 RULES:
 {rules_text}
