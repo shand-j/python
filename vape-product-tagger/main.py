@@ -210,6 +210,7 @@ class ControlledTagger:
         
         # Performance tracking
         self._processed_count = 0
+        self._ai_skipped_count = 0
         self._start_time = None
         self._lock = None  # Will be set when parallel processing starts
         
@@ -325,118 +326,65 @@ class ControlledTagger:
         
         rules_text = "\n".join(f"- {rule}" for rule in self.rules.values())
         
-        # Base prompt structure
-        base_prompt = f"""You are a vaping and CBD product expert. Analyze this product and suggest ONLY tags from the approved list.
+        # Truncate description to save tokens
+        desc_truncated = (description or 'Not provided')[:300]
+        if len(description or '') > 300:
+            desc_truncated += "..."
+        
+        # Compact approved tags - only include relevant categories
+        relevant_tags = {}
+        if category:
+            # Only include category-relevant tags + always-needed ones
+            always_include = ['category', 'brand']
+            category_map = {
+                'CBD': ['cbd_form', 'cbd_spectrum', 'cbd_strength'],
+                'e-liquid': ['nicotine_type', 'nicotine_strength', 'vg_ratio', 'flavour_profile', 'bottle_size'],
+                'pod': ['pod_type', 'capacity', 'resistance'],
+                'coil': ['resistance', 'coil_type'],
+                'disposable': ['nicotine_strength', 'puff_count', 'flavour_profile'],
+                'device': ['device_type', 'battery_capacity'],
+                'accessory': ['accessory_type'],
+            }
+            for key in always_include + category_map.get(category, []):
+                if key in self.approved_tags:
+                    relevant_tags[key] = self.approved_tags[key]
+        else:
+            relevant_tags = self.approved_tags
+        
+        # Base prompt - shortened
+        base_prompt = f"""Analyze this vaping/CBD product and suggest tags from the approved list.
 
-PRODUCT HANDLE: {handle}
-PRODUCT TITLE: {title}
-DESCRIPTION: {description or 'Not provided'}
-OPTION1: {option1_name} - {option1_value}
-OPTION2: {option2_name} - {option2_value}
-OPTION3: {option3_name} - {option3_value}
+PRODUCT: {handle}
+TITLE: {title}
+DESC: {desc_truncated}
+OPTIONS: {option1_name}:{option1_value} | {option2_name}:{option2_value} | {option3_name}:{option3_value}
 
-APPROVED TAGS (choose only from these):
-{json.dumps(self.approved_tags, indent=2)}
+APPROVED TAGS:
+{json.dumps(relevant_tags, indent=1)}
 
 RULES:
 {rules_text}
 
-Respond with ONLY a JSON object containing:
-- "tags": array of suggested tags
-- "confidence": number from 0.0 to 1.0 indicating your HONEST confidence level
-- "reasoning": brief explanation of your tagging decisions
+Return JSON only:
+{{"tags": ["tag1", "tag2"], "confidence": 0.0-1.0, "reasoning": "brief"}}
 
-CONFIDENCE GUIDELINES (be honest, don't always say 0.95):
-- 0.95-1.0: Product explicitly states tags (e.g., "Nic Salt" in title = nic_salt tag)
-- 0.80-0.94: Strong evidence from multiple sources (title + description agree)
-- 0.60-0.79: Reasonable inference but some ambiguity
-- 0.40-0.59: Educated guess, limited information
-- Below 0.40: Very uncertain, missing key information
+Confidence: 0.95+=explicit in title, 0.80-0.94=strong evidence, 0.60-0.79=inference, <0.60=uncertain"""
 
-Format: {{"tags": ["tag1", "tag2"], "confidence": 0.75, "reasoning": "brief explanation"}}"""
-
-        # Category-specific enhancements
+        # Shorter category-specific hints
         if category == 'CBD':
-            cbd_examples = """
-EXAMPLES FOR CBD PRODUCTS (note varying confidence based on clarity):
-- "CBD Tincture 1000mg Full Spectrum" → tags: ["tincture", "full_spectrum"], confidence: 0.95 (both form and spectrum explicit)
-- "CBD Gummies 500mg Broad Spectrum" → tags: ["gummy", "broad_spectrum"], confidence: 0.93 (clear product type and spectrum)
-- "CBD Oil Capsules 25mg Isolate" → tags: ["capsule", "isolate"], confidence: 0.92 (explicit form and spectrum)
-- "CBD Topical Cream 1000mg" → tags: ["topical"], confidence: 0.78 (form clear, spectrum missing)
-- "CBD Patches 20mg Transdermal" → tags: ["patch"], confidence: 0.80 (form clear, spectrum not stated)
-- "CBD Beverage Energy Drink 20mg" → tags: ["beverage"], confidence: 0.75 (form implied, spectrum unknown)
-- "CBD Edible Cookies 500mg" → tags: ["edible"], confidence: 0.72 (edible form, spectrum not mentioned)
-- "Premium CBD Oil" → tags: ["oil"], confidence: 0.55 (no strength, no spectrum, vague title)
-- "CBD 1000mg" → tags: [], confidence: 0.45 (strength only, form and spectrum unknown)
+            base_prompt += """
 
-CONSISTENCY EXAMPLES (tag similar products the same way):
-- "Realest CBD 3000mg CBG Isolate" → tags: ["cbg", "isolate"], confidence: 0.95 (explicit isolate)
-- "Realest CBD 2000mg CBG Isolate" → tags: ["cbg", "isolate"], confidence: 0.95 (explicit isolate)
-- "Orange County CBD 200mg Gummies" → tags: ["gummy"], confidence: 0.68 (spectrum not stated, need description)
-- "CBD Asylum Infuse 5000mg Oil" → tags: ["oil"], confidence: 0.65 (spectrum unclear, "Infuse" ambiguous)
-- "CBD Brothers Pure Blue 750mg Capsules" → tags: ["capsule"], confidence: 0.70 ("Pure" could mean isolate but uncertain)
-- "Voyager 900mg CBD Soft Gels" → tags: ["capsule"], confidence: 0.73 (soft gels = capsule, spectrum needs description check)
-
-CBD FORM DETECTION RULES:
-- tincture: liquid drops, oil, sublingual, under tongue, liquid extract
-- capsule: pills, softgels, caplets, soft gels
-- gummy: bears, candies, chews, edibles that are not cookies/brownies
-- topical: cream, balm, salve, lotion, rub, gel, roll-on
-- patch: transdermal, skin patches, patches
-- beverage: drink, shot, sparkling, energy drink, tea, coffee
-- edible: cookies, brownies, baked goods (not gummies), chocolate
-- paste: crumble, shatter, wax, concentrate, raw paste
-- oil: hemp oil, MCT oil, natural oil (when specified as oil)"""
-            
-            base_prompt = base_prompt.replace("Respond with ONLY a JSON object", f"{cbd_examples}\n\nRespond with ONLY a JSON object")
+CBD HINTS: tincture=drops/oil/sublingual, capsule=pills/softgels, gummy=bears/candies, topical=cream/balm, patch=transdermal, paste=concentrate/wax"""
             
         elif category == 'e-liquid':
-            eliquid_examples = """
-EXAMPLES FOR E-LIQUID PRODUCTS (note confidence varies with information clarity):
-- "20mg Nic Salt 50VG/50PG Fruit Punch" → tags: ["nic_salt", "50/50", "fruity"], confidence: 0.96 (all info explicit)
-- "10ml 70VG/30PG Freebase 18mg Tobacco" → tags: ["freebase_nicotine", "70/30", "tobacco"], confidence: 0.94 (clear info)
-- "3mg 100% VG Shortfill 120ml" → tags: ["shortfill", "100/0"], confidence: 0.82 (nic type inferred from low mg + shortfill)
-- "Berry Blast E-Liquid 10ml" → tags: ["fruity"], confidence: 0.58 (flavour guess, no nic type or ratio)
-- "Premium Vape Juice" → tags: [], confidence: 0.35 (insufficient information to tag)
-- "Strawberry 20mg" → tags: ["fruity"], confidence: 0.52 (flavour likely, nic type unclear - salt or freebase?)
+            base_prompt += """
 
-VG/PG RATIO DETECTION PATTERNS:
-- Standard: 50/50, 70/30, 80/20, 60/40, 30/70, 20/80
-- Text formats: "50VG/50PG", "70VG 30PG", "VG/PG 60/40", "50% VG 50% PG"
-- Compact: "7030", "VG70PG30", "70-30"
-- Descriptive: "high VG", "max VG", "balanced", "mouth to lung ratio"
-- Shortfill bottles: typically 80/20 or higher VG content
-
-CONSISTENCY EXAMPLES:
-- "Nic Salt 20mg 50VG/50PG" → tags: ["nic_salt", "50/50"], confidence: 0.94 (explicit)
-- "Freebase 18mg 70VG/30PG" → tags: ["freebase_nicotine", "70/30"], confidence: 0.92 (explicit)
-- "Shortfill 0mg 100% VG" → tags: ["shortfill", "100/0"], confidence: 0.88 (0mg confirms shortfill, ratio explicit)
-- "Shortfill 3mg 100% VG" → tags: ["shortfill", "100/0"], confidence: 0.78 (shortfill with 3mg unusual, may be mislabeled)
-- "10ml E-Liquid" → tags: [], confidence: 0.42 (no details to tag)"""
-            
-            base_prompt = base_prompt.replace("Respond with ONLY a JSON object", f"{eliquid_examples}\n\nRespond with ONLY a JSON object")
+E-LIQUID HINTS: Look for VG/PG ratio (50/50, 70/30), nic type (salt vs freebase), bottle size (10ml, 100ml shortfill)"""
             
         elif category == 'pod':
-            pod_examples = """
-EXAMPLES FOR POD PRODUCTS (confidence based on information clarity):
-- "2ml Replacement Pods 20mg Nic Salt" → tags: ["replacement_pod", "2ml", "nic_salt"], confidence: 0.93 (clear info)
-- "Prefilled Pods 1.8ml 50VG/50PG" → tags: ["prefilled_pod", "1.8ml", "50/50"], confidence: 0.90 (explicit)
-- "Compatible Pods" → tags: ["replacement_pod"], confidence: 0.62 (probably replacement, but could be prefilled)
-- "Pods 2 Pack" → tags: [], confidence: 0.48 (insufficient - prefilled or replacement? capacity?)
+            base_prompt += """
 
-POD CAPACITY DETECTION:
-- Common sizes: 1.5ml, 1.8ml, 2ml, 2.5ml, 3ml, 4ml
-- Look for patterns: "2ml pod", "1.8ml capacity", "3ml cartridge"
-- Replacement pods: usually 1.8ml, 2ml, 2.5ml
-- Prefilled pods: various sizes, check product specs
-
-CONSISTENCY EXAMPLES:
-- "VooPoo Replacement Pods 2ml" → tags: ["replacement_pod", "2ml"], confidence: 0.91 (replacement explicit, capacity clear)
-- "VooPoo Replacement Pods" → tags: ["replacement_pod"], confidence: 0.82 (replacement explicit, capacity unknown)
-- "Juul Compatible Pods 1.7ml" → tags: ["replacement_pod", "1.7ml"], confidence: 0.78 (compatible usually = replacement)
-- "Pod Cartridges" → tags: [], confidence: 0.45 (too ambiguous - prefilled or replacement?)"""
-            
-            base_prompt = base_prompt.replace("Respond with ONLY a JSON object", f"{pod_examples}\n\nRespond with ONLY a JSON object")
+POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refilling"""
 
         return base_prompt
     
@@ -920,8 +868,39 @@ CONSISTENCY EXAMPLES:
         if forced_category:
             preliminary_category = forced_category
         
-        # Get AI suggestions with category-aware prompting
-        ai_tags, ai_metadata = self.get_ai_tags(product_dict, category=preliminary_category)
+        # OPTIMIZATION: Skip AI for high-confidence rule matches
+        # Skip AI if we have: category + at least 2 other tags from rules
+        ai_tags = []
+        ai_metadata = {
+            'prompt': None,
+            'model_output': None,
+            'confidence': None,
+            'reasoning': None,
+            'skipped_ai': False
+        }
+        
+        non_category_rule_tags = [t for t in rule_tags if t not in self.category_tags]
+        skip_ai = (
+            preliminary_category is not None and 
+            len(non_category_rule_tags) >= 2 and
+            not self.no_ai
+        )
+        
+        if skip_ai:
+            # High-confidence rule match - skip expensive AI call
+            ai_metadata['skipped_ai'] = True
+            ai_metadata['confidence'] = 0.85  # Synthetic confidence for rule-only
+            ai_metadata['reasoning'] = f"Skipped AI: Strong rule match ({len(rule_tags)} tags including category)"
+            self.logger.debug(f"Skipping AI for {handle}: {rule_tags}")
+            # Track skip count (thread-safe)
+            if self._lock:
+                with self._lock:
+                    self._ai_skipped_count += 1
+            else:
+                self._ai_skipped_count += 1
+        else:
+            # Get AI suggestions with category-aware prompting
+            ai_tags, ai_metadata = self.get_ai_tags(product_dict, category=preliminary_category)
         
         # Combine and deduplicate
         all_tags = list(set(ai_tags + rule_tags))
@@ -1016,10 +995,12 @@ CONSISTENCY EXAMPLES:
             'tag_by_cat': dict(tag_by_cat),
         }
     
-    def _log_performance_summary(self, total, start_time):
+    def _log_performance_summary(self, total, start_time, ai_skipped=0):
         """Log final performance statistics"""
         elapsed = time.time() - start_time
         rate = total / (elapsed / 60) if elapsed > 0 else 0
+        ai_calls = total - ai_skipped
+        skip_pct = (ai_skipped / total * 100) if total > 0 else 0
         
         self.logger.info(f"\n{'='*60}")
         self.logger.info("PERFORMANCE SUMMARY")
@@ -1029,6 +1010,9 @@ CONSISTENCY EXAMPLES:
         self.logger.info(f"  Average rate: {rate:.1f} products/minute")
         self.logger.info(f"  Workers: {self.max_workers if self.parallel_processing else 1}")
         self.logger.info(f"  Parallel processing: {'enabled' if self.parallel_processing else 'disabled'}")
+        self.logger.info(f"{'─'*60}")
+        self.logger.info(f"  AI calls made: {ai_calls}")
+        self.logger.info(f"  AI calls skipped: {ai_skipped} ({skip_pct:.1f}%)")
         self.logger.info(f"{'='*60}\n")
     
     def tag_products(self, input_file, output_file=None, limit=None):
@@ -1074,6 +1058,7 @@ CONSISTENCY EXAMPLES:
         
         # Initialize performance tracking
         self._processed_count = 0
+        self._ai_skipped_count = 0
         self._start_time = time.time()
         self._lock = threading.Lock()
         
@@ -1111,7 +1096,7 @@ CONSISTENCY EXAMPLES:
                     self.logger.error(f"Error processing {handle}: {e}")
         
         # Log performance summary
-        self._log_performance_summary(len(results), self._start_time)
+        self._log_performance_summary(len(results), self._start_time, self._ai_skipped_count)
         
         # Collect tagged and untagged products
         tagged_products = []
