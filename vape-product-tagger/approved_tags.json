@@ -92,7 +92,7 @@
   },
   "accessory_type": {
     "applies_to": ["accessory"],
-    "tags": ["battery", "charger", "charging_cable", "pouch", "case", "drip_tip", "mouthpiece", "tool_kit", "cotton", "wire", "screwdriver", "battery_wraps" ]
+    "tags": ["battery", "charger", "charging_cable", "pouch", "case", "drip_tip", "mouthpiece", "tool_kit", "cotton", "wire", "screwdriver", "battery_wraps", "atomizer", "510_atomizer"]
   },
   "tank_parts": {
     "applies_to": ["tank"],

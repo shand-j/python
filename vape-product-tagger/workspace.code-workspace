@@ -1,0 +1,9 @@
+{
+	"folders": [
+		{
+			"uri": "vscode-remote://ssh-remote+vastai/workspace"
+		}
+	],
+	"remoteAuthority": "ssh-remote+vastai",
+	"settings": {}
+}

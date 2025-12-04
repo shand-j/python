@@ -496,11 +496,25 @@ CONSISTENCY EXAMPLES:
         rule_tags = []
         
         # Prioritize handle/title for category determination
-        if 'charger' in handle_title:
+        # USB/Charging cable detection - check first (before generic 'charger')
+        if any(pattern in handle_title for pattern in ['usb cable', 'charging cable', 'data cable', 'usb-c cable', 'micro usb', 'type-c cable']):
+            rule_tags.append('charging_cable')
+            forced_category = 'accessory'
+        elif 'cable' in handle_title and any(word in handle_title for word in ['usb', 'charge', 'charging', 'data', 'phone', 'iphone', 'android', 'type-c', 'micro']):
+            rule_tags.append('charging_cable')
+            forced_category = 'accessory'
+        elif 'charger' in handle_title:
             rule_tags.append('charger')
             forced_category = 'accessory'
         elif 'battery' in handle_title:
             rule_tags.append('battery')
+            forced_category = 'accessory'
+        # Atomizer detection
+        elif 'atomizer' in handle_title or 'atomiser' in handle_title:
+            if '510' in handle_title:
+                rule_tags.append('510_atomizer')
+            else:
+                rule_tags.append('atomizer')
             forced_category = 'accessory'
         elif 'coil' in handle_title:
             rule_tags.append('coil')
@@ -572,43 +586,59 @@ CONSISTENCY EXAMPLES:
         
         # CBD strength detection
         if 'cbd' in text or 'cbg' in text:
-            # CBD form detection - enhanced with edge cases
-            if any(word in text for word in ['tincture', 'drop', 'liquid', 'oil', 'extract', 'sublingual']):
-                rule_tags.append('tincture')
-            elif any(word in text for word in ['capsule', 'cap', 'softgel', 'soft gel', 'soft-gel', 'gel cap']):
+            # CBD form detection - ordered by specificity, NO default fallback
+            # Check specific forms first (capsule/softgel before topical to avoid 'gel' false positives)
+            cbd_form_detected = False
+            
+            if any(word in text for word in ['capsule', 'cap', 'softgel', 'soft gel', 'soft-gel', 'gel cap', 'gelcap']):
                 rule_tags.append('capsule')
-            elif any(word in text for word in ['gummy', 'bear', 'candy', 'chew', 'jelly']):
+                cbd_form_detected = True
+            elif any(word in text for word in ['gummy', 'gummies', 'bear', 'candy', 'chew', 'jelly', 'sweets']):
                 rule_tags.append('gummy')
-            elif any(word in text for word in ['topical', 'cream', 'balm', 'salve', 'lotion', 'rub', 'gel', 'roll-on', 'roller']):
+                cbd_form_detected = True
+            elif any(word in text for word in ['topical', 'cream', 'balm', 'salve', 'lotion', 'rub', 'roll-on', 'roller', 'muscle gel', 'skin gel']):
                 rule_tags.append('topical')
-            elif any(word in text for word in ['paste', 'crumble', 'shatter', 'wax', 'concentrate', 'raw paste']):
+                cbd_form_detected = True
+            elif any(word in text for word in ['tincture', 'drop', 'drops', 'sublingual', 'extract']):
+                rule_tags.append('tincture')
+                cbd_form_detected = True
+            elif any(word in text for word in ['paste', 'crumble', 'shatter', 'wax', 'concentrate', 'raw paste', 'dab']):
                 rule_tags.append('paste')
-            elif any(word in text for word in ['shot', 'beverage', 'drink', 'sparkling', 'energy drink', 'soda']):
+                cbd_form_detected = True
+            elif any(word in text for word in ['shot', 'beverage', 'drink', 'sparkling', 'energy drink', 'soda', 'tea', 'coffee', 'infusion']):
                 rule_tags.append('beverage')
-            elif any(word in text for word in ['tea', 'coffee', 'infusion', 'chai']):
-                rule_tags.append('beverage')
-            elif any(word in text for word in ['edible', 'cookie', 'brownie', 'chocolate', 'bar']):
+                cbd_form_detected = True
+            elif any(word in text for word in ['edible', 'cookie', 'brownie', 'chocolate', 'bar', 'snack']):
                 rule_tags.append('edible')
+                cbd_form_detected = True
             elif any(word in text for word in ['patch', 'transdermal', 'skin patch']):
                 rule_tags.append('patch')
-            else:
-                # Default to tincture for CBD products without specific form indicators
-                rule_tags.append('tincture')
+                cbd_form_detected = True
+            elif any(word in text for word in ['vape', 'cartridge', 'cart', 'disposable', 'e-liquid', 'eliquid']):
+                rule_tags.append('vape')
+                cbd_form_detected = True
+            elif any(word in text for word in ['flower', 'bud', 'hemp flower', 'pre-roll', 'preroll']):
+                rule_tags.append('flower')
+                cbd_form_detected = True
             
-            # CBD type detection
-            if 'full spectrum' in text or 'full-spectrum' in text:
+            # Only check for 'oil' if no other form was detected (avoid false positives)
+            if not cbd_form_detected and 'oil' in text:
+                rule_tags.append('tincture')  # Oil typically means tincture
+            
+            # NO default fallback - let AI handle ambiguous products
+            
+            # CBD spectrum type detection - NO default fallback
+            if 'full spectrum' in text or 'full-spectrum' in text or 'fullspectrum' in text:
                 rule_tags.append('full_spectrum')
-            elif 'broad spectrum' in text or 'broad-spectrum' in text:
+            elif 'broad spectrum' in text or 'broad-spectrum' in text or 'broadspectrum' in text:
                 rule_tags.append('broad_spectrum')
-            elif 'isolate' in text:
+            elif 'isolate' in text or 'pure cbd' in text:
                 rule_tags.append('isolate')
-            elif 'cbg' in text:
+            elif 'cbg' in text and 'cbd' not in text:
                 rule_tags.append('cbg')
             elif 'cbda' in text:
                 rule_tags.append('cbda')
-            else:
-                # Default to full spectrum if not specified
-                rule_tags.append('full_spectrum')
+            # NO default to full_spectrum - let AI determine if ambiguous
             
             mg_matches = re.findall(r'(\d+)mg', text)
             if mg_matches:
