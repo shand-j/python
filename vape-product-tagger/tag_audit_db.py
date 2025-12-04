@@ -74,6 +74,9 @@ class TagAuditDB:
             human_corrected_tags TEXT,
             human_corrected_category TEXT,
             detected_category TEXT,
+            ai_review_decision TEXT,
+            ai_review_confidence REAL,
+            ai_review_reasoning TEXT,
             FOREIGN KEY (run_id) REFERENCES runs(run_id)
         )
         ''')
@@ -101,6 +104,9 @@ class TagAuditDB:
             ('human_corrected_tags', 'TEXT'),
             ('human_corrected_category', 'TEXT'),
             ('detected_category', 'TEXT'),
+            ('ai_review_decision', 'TEXT'),
+            ('ai_review_confidence', 'REAL'),
+            ('ai_review_reasoning', 'TEXT'),
         ]
         
         for col_name, col_type in new_columns:
@@ -333,6 +339,258 @@ class TagAuditDB:
             ''', (corrected_category, handle))
             conn.commit()
 
+    def update_ai_review(self, handle, decision, confidence, reasoning):
+        """Update a product with AI review decision"""
+        conn = self._get_connection()
+        cur = conn.cursor()
+        
+        if self.thread_safe:
+            with self._lock:
+                cur.execute('''
+                    UPDATE products 
+                    SET ai_review_decision = ?, ai_review_confidence = ?, ai_review_reasoning = ?
+                    WHERE handle = ?
+                ''', (decision, confidence, reasoning, handle))
+                conn.commit()
+        else:
+            cur.execute('''
+                UPDATE products 
+                SET ai_review_decision = ?, ai_review_confidence = ?, ai_review_reasoning = ?
+                WHERE handle = ?
+            ''', (decision, confidence, reasoning, handle))
+            conn.commit()
+
+    def get_products_for_ai_review(self, limit=None):
+        """Get products that haven't been AI reviewed yet"""
+        conn = self._get_connection()
+        cur = conn.cursor()
+        
+        query = '''
+            SELECT id, handle, title, detected_category, rule_tags, ai_tags, 
+                   final_tags, ai_confidence, ai_reasoning, description
+            FROM products 
+            WHERE human_verified = 0 AND ai_review_decision IS NULL
+            ORDER BY processed_at ASC
+        '''
+        
+        if limit:
+            query += f' LIMIT {limit}'
+        
+        cur.execute(query)
+        columns = [desc[0] for desc in cur.description]
+        return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+    def get_flagged_products(self, limit=None):
+        """Get products flagged by AI review for human review"""
+        conn = self._get_connection()
+        cur = conn.cursor()
+        
+        query = '''
+            SELECT id, handle, title, detected_category, rule_tags, ai_tags, 
+                   final_tags, ai_confidence, ai_reasoning, ai_review_reasoning
+            FROM products 
+            WHERE human_verified = 0 AND ai_review_decision = 'flag'
+            ORDER BY ai_review_confidence ASC
+        '''
+        
+        if limit:
+            query += f' LIMIT {limit}'
+        
+        cur.execute(query)
+        columns = [desc[0] for desc in cur.description]
+        return [dict(zip(columns, row)) for row in cur.fetchall()]
+
+    def auto_approve_by_ai_review(self):
+        """Auto-approve products where AI review decision is 'approve'"""
+        conn = self._get_connection()
+        cur = conn.cursor()
+        
+        if self.thread_safe:
+            with self._lock:
+                cur.execute('''
+                    UPDATE products 
+                    SET human_verified = 1
+                    WHERE ai_review_decision = 'approve' AND human_verified = 0
+                ''')
+                count = cur.rowcount
+                conn.commit()
+        else:
+            cur.execute('''
+                UPDATE products 
+                SET human_verified = 1
+                WHERE ai_review_decision = 'approve' AND human_verified = 0
+            ''')
+            count = cur.rowcount
+            conn.commit()
+        
+        return count
+
+    def _create_ai_review_prompt(self, product):
+        """Create a prompt for AI to review existing tags"""
+        title = product.get('title', '')
+        category = product.get('detected_category', '')
+        description = product.get('description', '')[:500] if product.get('description') else ''
+        
+        # Parse tags
+        try:
+            rule_tags = json.loads(product.get('rule_tags', '[]')) if product.get('rule_tags') else []
+        except (json.JSONDecodeError, TypeError):
+            rule_tags = []
+        
+        try:
+            ai_tags = json.loads(product.get('ai_tags', '[]')) if product.get('ai_tags') else []
+        except (json.JSONDecodeError, TypeError):
+            ai_tags = []
+        
+        try:
+            final_tags = json.loads(product.get('final_tags', '[]')) if product.get('final_tags') else []
+        except (json.JSONDecodeError, TypeError):
+            final_tags = []
+        
+        original_confidence = product.get('ai_confidence', 0)
+        original_reasoning = product.get('ai_reasoning', '')
+        
+        prompt = f"""You are reviewing product tags for a vape/CBD e-commerce store. Evaluate if the assigned tags are correct.
+
+PRODUCT:
+- Title: {title}
+- Category: {category}
+- Description: {description[:300]}...
+
+ASSIGNED TAGS:
+- Rule-based tags: {rule_tags}
+- AI-generated tags: {ai_tags}
+- Final combined tags: {final_tags}
+- Original AI confidence: {original_confidence}
+- Original reasoning: {original_reasoning}
+
+TASK: Review if the tags correctly describe this product. Consider:
+1. Is the category correct for this product type?
+2. Are the tags relevant and accurate?
+3. Are there obvious missing tags or incorrect tags?
+
+Respond with JSON only:
+{{
+    "decision": "approve" or "flag",
+    "confidence": 0.0 to 1.0,
+    "reasoning": "Brief explanation of your decision"
+}}
+
+Rules:
+- "approve" = Tags are correct or close enough, no human review needed
+- "flag" = Tags need human review due to errors or uncertainty
+- Be generous with approval if tags are mostly correct
+- Flag only clear errors or ambiguous cases"""
+
+        return prompt
+
+    def ai_review_product(self, product, model='llama3.1'):
+        """Use AI to review a single product's tags"""
+        try:
+            import ollama
+        except ImportError:
+            print("❌ ollama package not installed. Run: pip install ollama")
+            return None
+        
+        prompt = self._create_ai_review_prompt(product)
+        
+        try:
+            response = ollama.chat(model=model, messages=[
+                {'role': 'user', 'content': prompt}
+            ])
+            
+            output = response['message']['content']
+            
+            # Parse JSON response
+            # Find JSON in response (handle markdown code blocks)
+            json_str = output
+            if '```json' in output:
+                json_str = output.split('```json')[1].split('```')[0].strip()
+            elif '```' in output:
+                json_str = output.split('```')[1].split('```')[0].strip()
+            elif '{' in output:
+                start = output.find('{')
+                end = output.rfind('}') + 1
+                json_str = output[start:end]
+            
+            result = json.loads(json_str)
+            
+            return {
+                'decision': result.get('decision', 'flag'),
+                'confidence': float(result.get('confidence', 0.5)),
+                'reasoning': result.get('reasoning', 'No reasoning provided')
+            }
+            
+        except json.JSONDecodeError as e:
+            print(f"  ⚠️  Failed to parse AI response: {e}")
+            return {'decision': 'flag', 'confidence': 0.0, 'reasoning': f'Parse error: {e}'}
+        except Exception as e:
+            print(f"  ❌ AI review error: {e}")
+            return None
+
+    def ai_review_session(self, model='llama3.1', auto_approve_threshold=0.85, batch_size=None):
+        """Run AI-powered review session on unverified products"""
+        products = self.get_products_for_ai_review(limit=batch_size)
+        
+        if not products:
+            print("\n✅ No products pending AI review!")
+            return {'reviewed': 0, 'approved': 0, 'flagged': 0}
+        
+        print(f"\n{'='*60}")
+        print("  AI-POWERED AUDIT REVIEW")
+        print(f"  {len(products)} products to review")
+        print(f"  Auto-approve threshold: {auto_approve_threshold:.0%}")
+        print(f"  Model: {model}")
+        print(f"{'='*60}\n")
+        
+        approved = 0
+        flagged = 0
+        errors = 0
+        
+        for i, product in enumerate(products, 1):
+            handle = product['handle']
+            title = product['title'][:50] if product['title'] else 'Unknown'
+            
+            print(f"[{i}/{len(products)}] {title}...", end=' ', flush=True)
+            
+            result = self.ai_review_product(product, model=model)
+            
+            if result is None:
+                errors += 1
+                print("❌ Error")
+                continue
+            
+            decision = result['decision']
+            confidence = result['confidence']
+            reasoning = result['reasoning']
+            
+            # Auto-approve high confidence approvals
+            if decision == 'approve' and confidence >= auto_approve_threshold:
+                self.update_ai_review(handle, 'approve', confidence, reasoning)
+                approved += 1
+                print(f"✅ Approved ({confidence:.0%})")
+            else:
+                self.update_ai_review(handle, 'flag', confidence, reasoning)
+                flagged += 1
+                print(f"🚩 Flagged ({confidence:.0%}) - {reasoning[:50]}")
+        
+        # Summary
+        print(f"\n{'='*60}")
+        print("  AI REVIEW SESSION COMPLETE")
+        print(f"{'='*60}")
+        print(f"  Total reviewed:  {len(products)}")
+        print(f"  Auto-approved:   {approved}")
+        print(f"  Flagged:         {flagged}")
+        print(f"  Errors:          {errors}")
+        print(f"{'='*60}\n")
+        
+        # Auto-approve in database
+        if approved > 0:
+            auto_count = self.auto_approve_by_ai_review()
+            print(f"✅ {auto_count} products auto-verified in database")
+        
+        return {'reviewed': len(products), 'approved': approved, 'flagged': flagged, 'errors': errors}
+
     def get_stats(self):
         """Get statistics about the audit database"""
         conn = self._get_connection()
@@ -373,6 +631,16 @@ class TagAuditDB:
         avg_conf = cur.fetchone()[0]
         stats['avg_confidence'] = round(avg_conf, 3) if avg_conf else 0.0
         
+        # AI Review stats
+        cur.execute("SELECT COUNT(*) FROM products WHERE ai_review_decision = 'approve'")
+        stats['ai_approved'] = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM products WHERE ai_review_decision = 'flag'")
+        stats['ai_flagged'] = cur.fetchone()[0]
+        
+        cur.execute("SELECT COUNT(*) FROM products WHERE ai_review_decision IS NULL AND human_verified = 0")
+        stats['pending_ai_review'] = cur.fetchone()[0]
+        
         return stats
 
     def print_stats(self):
@@ -380,7 +648,7 @@ class TagAuditDB:
         stats = self.get_stats()
         
         print(f"\n{'='*50}")
-        print(f"  TAG AUDIT DATABASE STATISTICS")
+        print("  TAG AUDIT DATABASE STATISTICS")
         print(f"{'='*50}")
         print(f"  Total products:       {stats['total']:,}")
         print(f"  Verified:             {stats['verified']:,}")
@@ -389,23 +657,41 @@ class TagAuditDB:
         print(f"  Unverified:           {stats['unverified']:,}")
         print(f"  Avg AI confidence:    {stats['avg_confidence']:.2%}")
         print(f"{'─'*50}")
-        print(f"  By Category:")
+        print("  AI Review Status:")
+        print(f"    Approved by AI:     {stats.get('ai_approved', 0):,}")
+        print(f"    Flagged for review: {stats.get('ai_flagged', 0):,}")
+        print(f"    Pending AI review:  {stats.get('pending_ai_review', 0):,}")
+        print(f"{'─'*50}")
+        print("  By Category:")
         for cat, count in stats.get('by_category', {}).items():
             print(f"    {cat or 'unknown':<20} {count:,}")
         print(f"{'='*50}\n")
 
-    def review_session(self):
-        """Interactive session to review and verify tagged products"""
-        unverified = self.get_unverified_products()
+    def review_session(self, flagged_only=False):
+        """Interactive session to review and verify tagged products
+        
+        Args:
+            flagged_only: If True, only review products flagged by AI review
+        """
+        if flagged_only:
+            unverified = self.get_flagged_products()
+            session_title = "FLAGGED PRODUCTS REVIEW"
+        else:
+            unverified = self.get_unverified_products()
+            session_title = "AUDIT REVIEW SESSION"
         
         if not unverified:
-            print("\n✅ No unverified products to review!")
-            print(f"   Total products in database: {self.get_stats().get('total', 0)}")
+            if flagged_only:
+                print("\n✅ No AI-flagged products to review!")
+                print("   Run --ai-review first to flag products for human review.")
+            else:
+                print("\n✅ No unverified products to review!")
+                print(f"   Total products in database: {self.get_stats().get('total', 0)}")
             return
         
         print(f"\n{'='*60}")
-        print(f"  AUDIT REVIEW SESSION")
-        print(f"  {len(unverified)} unverified products to review")
+        print(f"  {session_title}")
+        print(f"  {len(unverified)} products to review")
         print(f"{'='*60}\n")
         
         reviewed_count = 0
@@ -434,6 +720,7 @@ class TagAuditDB:
                 final_tags = []
             
             confidence = product['ai_confidence'] or 0.0
+            ai_review_reasoning = product.get('ai_review_reasoning', '')
             
             # Display product info
             print(f"\n{'─'*60}")
@@ -443,6 +730,13 @@ class TagAuditDB:
             print(f"  Title:      {title}")
             print(f"  Category:   {category}")
             print(f"  Confidence: {confidence:.2f}")
+            
+            # Show AI review reasoning if flagged
+            if ai_review_reasoning and flagged_only:
+                print()
+                print(f"  🤖 AI Review Flag Reason:")
+                print(f"     {ai_review_reasoning}")
+            
             print()
             print(f"  Rule-based tags ({len(rule_tags)}):")
             for tag in rule_tags[:10]:
@@ -651,6 +945,11 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description="Tag Audit Database Management")
     parser.add_argument("--review", action="store_true", help="Start interactive review session")
+    parser.add_argument("--ai-review", action="store_true", help="Run AI-powered first pass review")
+    parser.add_argument("--ai-model", type=str, default="llama3.1", help="Ollama model for AI review (default: llama3.1)")
+    parser.add_argument("--ai-threshold", type=float, default=0.85, help="Auto-approve confidence threshold (default: 0.85)")
+    parser.add_argument("--batch-size", type=int, help="Limit number of products to review")
+    parser.add_argument("--flagged-only", action="store_true", help="Review only AI-flagged products")
     parser.add_argument("--stats", action="store_true", help="Show database statistics")
     parser.add_argument("--export", type=str, metavar="FILE", help="Export training data to JSONL file")
     parser.add_argument("--export-all", action="store_true", help="Export all products (not just verified)")
@@ -663,8 +962,14 @@ if __name__ == "__main__":
     
     if args.stats:
         db.print_stats()
+    elif args.ai_review:
+        db.ai_review_session(
+            model=args.ai_model,
+            auto_approve_threshold=args.ai_threshold,
+            batch_size=args.batch_size
+        )
     elif args.review:
-        db.review_session()
+        db.review_session(flagged_only=args.flagged_only)
     elif args.export:
         db.export_training_data(args.export, verified_only=not args.export_all)
     elif args.clear:
