@@ -27,7 +27,7 @@ env/
 .venv
 
 # Configuration
-config.env
+**/**/config.env
 
 # Output directories
 output/
