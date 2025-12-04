@@ -1079,7 +1079,7 @@ CONSISTENCY EXAMPLES:
                     preliminary_category_secondary = forced_category_secondary
                 
                 # Get secondary AI tags with category-aware prompting
-                ai_tags_secondary = self.get_ai_tags(handle, title, description, category=preliminary_category_secondary)
+                ai_tags_secondary, _ = self.get_ai_tags(handle, title, description, category=preliminary_category_secondary)
                 
                 # Combine (use secondary results, not outer variables)
                 all_tags = list(set(ai_tags_secondary + rule_tags_secondary))
