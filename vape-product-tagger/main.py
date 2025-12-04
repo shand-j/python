@@ -14,9 +14,12 @@ import re
 import logging
 import argparse
 import sys
+import threading
+import time
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import os
 from tag_audit_db import TagAuditDB
@@ -99,6 +102,18 @@ Examples:
         help='Resume a specific run by ID. If omitted, starts a new run.'
     )
     
+    parser.add_argument(
+        '--workers', '-w',
+        type=int,
+        help='Number of parallel workers (overrides MAX_WORKERS env var)'
+    )
+    
+    parser.add_argument(
+        '--no-parallel',
+        action='store_true',
+        help='Disable parallel processing (sequential mode)'
+    )
+    
     return parser.parse_args()
 
 # Simple logger setup
@@ -112,7 +127,7 @@ def setup_simple_logger():
     return logger
 
 class ControlledTagger:
-    def __init__(self, config_file=None, no_ai=False, verbose=False, default_product_type=None, audit_db_path=None, run_id=None):
+    def __init__(self, config_file=None, no_ai=False, verbose=False, default_product_type=None, audit_db_path=None, run_id=None, max_workers=None, no_parallel=False):
         # Load config
         if config_file:
             load_dotenv(config_file)
@@ -179,6 +194,24 @@ class ControlledTagger:
             'accessory': 2,
         }
         self.category_tags = set(self.approved_tags.get('category', []))
+        
+        # Parallel processing config (CLI args override env vars)
+        if no_parallel:
+            self.parallel_processing = False
+        else:
+            self.parallel_processing = os.getenv('PARALLEL_PROCESSING', 'true').lower() == 'true'
+        
+        if max_workers:
+            self.max_workers = max_workers
+        else:
+            self.max_workers = int(os.getenv('MAX_WORKERS', 4))
+        
+        self.batch_size = int(os.getenv('BATCH_SIZE', 10))
+        
+        # Performance tracking
+        self._processed_count = 0
+        self._start_time = None
+        self._lock = None  # Will be set when parallel processing starts
         
     def _setup_logger(self, verbose):
         """Setup logger with appropriate level"""
@@ -852,8 +885,154 @@ CONSISTENCY EXAMPLES:
                 valid_tags.append(tag)
         return valid_tags, forced_category
     
+    def _process_single_product(self, product, index, total):
+        """Process a single product and return result dict. Thread-safe."""
+        handle = product.get('Handle', '')
+        
+        product_dict = {
+            'handle': handle,
+            'title': product.get('Title', ''),
+            'description': product.get('Body (HTML)', ''),
+            'option1_name': product.get('Option1 Name', ''),
+            'option1_value': product.get('Option1 Value', ''),
+            'option2_name': product.get('Option2 Name', ''),
+            'option2_value': product.get('Option2 Value', ''),
+            'option3_name': product.get('Option3 Name', ''),
+            'option3_value': product.get('Option3 Value', ''),
+        }
+        
+        # Get rule-based tags first to determine category
+        rule_tags, forced_category = self.get_rule_based_tags(
+            product_dict['handle'], product_dict['title'], product_dict['description']
+        )
+        
+        # Determine preliminary product category for AI prompting
+        preliminary_category = None
+        max_priority = -1
+        for tag in rule_tags:
+            if tag in self.category_tags:
+                priority = self.category_priority.get(tag, 0)
+                if priority > max_priority:
+                    max_priority = priority
+                    preliminary_category = tag
+        
+        # Override with forced category from handle
+        if forced_category:
+            preliminary_category = forced_category
+        
+        # Get AI suggestions with category-aware prompting
+        ai_tags, ai_metadata = self.get_ai_tags(product_dict, category=preliminary_category)
+        
+        # Combine and deduplicate
+        all_tags = list(set(ai_tags + rule_tags))
+        
+        # Determine product category with priority
+        product_category = None
+        max_priority = -1
+        for tag in all_tags:
+            if tag in self.category_tags:
+                priority = self.category_priority.get(tag, 0)
+                if priority > max_priority:
+                    max_priority = priority
+                    product_category = tag
+        
+        # Override with forced category from handle
+        if forced_category:
+            product_category = forced_category
+        
+        # Infer vaping style from VG/PG ratio for e-liquids
+        inferred_tags = []
+        if product_category == 'e-liquid':
+            for tag in all_tags:
+                if '/' in tag and tag in self.approved_tags.get('vg_ratio', {}).get('tags', []):
+                    try:
+                        vg, pg = map(int, tag.split('/'))
+                        if pg >= 50:
+                            inferred_tags.append('mouth-to-lung')
+                        elif 60 <= vg <= 70:
+                            inferred_tags.append('restricted-direct-to-lung')
+                        elif vg >= 70:
+                            inferred_tags.append('direct-to-lung')
+                    except ValueError:
+                        pass
+        all_tags.extend(inferred_tags)
+        all_tags = list(set(all_tags))
+        
+        # Filter tags based on applies_to and enforce category limits
+        tag_by_cat = defaultdict(list)
+        for tag in all_tags:
+            cat = self.tag_to_category.get(tag)
+            
+            # Special handling for range-based categories
+            if not cat:
+                if re.match(r'^\d+mg$', tag):
+                    cbd_config = self.approved_tags.get('cbd_strength', {})
+                    if cbd_config.get('range') and product_category == 'CBD':
+                        cat = 'cbd_strength'
+            
+            if cat == 'category':
+                continue
+            cat_data = self.approved_tags.get(cat, {})
+            applies_to = cat_data.get('applies_to', ['all']) if isinstance(cat_data, dict) else ['all']
+            if 'all' in applies_to or product_category in applies_to:
+                tag_by_cat[cat].append(tag)
+        
+        # Sort tags within each category
+        for cat in tag_by_cat:
+            if cat == 'accessory_type':
+                tag_by_cat[cat].sort(key=lambda t: (0 if t == 'charger' else 1 if t == 'battery' else 2, -len(t)))
+            else:
+                tag_by_cat[cat].sort(key=len, reverse=True)
+        
+        final_tags = []
+        for cat, tags in tag_by_cat.items():
+            final_tags.extend(tags[:1])  # Keep at most one per category
+        
+        # Update performance counter (thread-safe)
+        if self._lock:
+            with self._lock:
+                self._processed_count += 1
+                count = self._processed_count
+        else:
+            self._processed_count += 1
+            count = self._processed_count
+        
+        # Log progress periodically
+        if count % 10 == 0 or count == total:
+            elapsed = time.time() - self._start_time
+            rate = count / (elapsed / 60) if elapsed > 0 else 0
+            self.logger.info(f"Progress: {count}/{total} ({count/total*100:.1f}%) | Rate: {rate:.1f} products/min")
+        
+        return {
+            'handle': handle,
+            'product': product,
+            'product_dict': product_dict,
+            'rule_tags': rule_tags,
+            'ai_tags': ai_tags,
+            'final_tags': final_tags,
+            'forced_category': forced_category,
+            'product_category': product_category,
+            'ai_metadata': ai_metadata,
+            'tag_by_cat': dict(tag_by_cat),
+        }
+    
+    def _log_performance_summary(self, total, start_time):
+        """Log final performance statistics"""
+        elapsed = time.time() - start_time
+        rate = total / (elapsed / 60) if elapsed > 0 else 0
+        
+        self.logger.info(f"\n{'='*60}")
+        self.logger.info("PERFORMANCE SUMMARY")
+        self.logger.info(f"{'='*60}")
+        self.logger.info(f"  Total products processed: {total}")
+        self.logger.info(f"  Total time: {elapsed:.1f} seconds ({elapsed/60:.2f} minutes)")
+        self.logger.info(f"  Average rate: {rate:.1f} products/minute")
+        self.logger.info(f"  Workers: {self.max_workers if self.parallel_processing else 1}")
+        self.logger.info(f"  Parallel processing: {'enabled' if self.parallel_processing else 'disabled'}")
+        self.logger.info(f"{'='*60}\n")
+    
     def tag_products(self, input_file, output_file=None, limit=None):
-        """Tag products from input CSV"""
+        """Tag products from input CSV with optional parallel processing"""
         
         self.logger.info(f"Starting controlled tagging from {input_file}")
         
@@ -876,171 +1055,116 @@ CONSISTENCY EXAMPLES:
         # Load already processed products if resuming
         processed_handles = set()
         if self.audit_db and self.run_id:
-            cur = self.audit_db.conn.cursor()
+            conn = self.audit_db._get_connection()
+            cur = conn.cursor()
             cur.execute('SELECT handle FROM products WHERE run_id = ?', (self.run_id,))
             processed_handles = {row[0] for row in cur.fetchall()}
             self.logger.info(f"Found {len(processed_handles)} already processed products")
         
-        # Process each product
+        # Filter out already processed
+        products_to_process = [p for p in products if p.get('Handle', '') not in processed_handles]
+        skipped_count = len(products) - len(products_to_process)
+        if skipped_count > 0:
+            self.logger.info(f"Skipping {skipped_count} already processed products")
+        
+        total = len(products_to_process)
+        if total == 0:
+            self.logger.info("No products to process")
+            return
+        
+        # Initialize performance tracking
+        self._processed_count = 0
+        self._start_time = time.time()
+        self._lock = threading.Lock()
+        
+        self.logger.info(f"Processing {total} products with {'parallel' if self.parallel_processing else 'sequential'} mode")
+        if self.parallel_processing:
+            self.logger.info(f"Using {self.max_workers} workers")
+        
+        # Process products
+        results = []
+        
+        if self.parallel_processing and total > 1:
+            # Parallel processing with ThreadPoolExecutor
+            with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
+                futures = {
+                    executor.submit(self._process_single_product, product, i, total): (i, product)
+                    for i, product in enumerate(products_to_process, 1)
+                }
+                
+                for future in as_completed(futures):
+                    i, product = futures[future]
+                    try:
+                        result = future.result()
+                        results.append(result)
+                    except Exception as e:
+                        handle = product.get('Handle', 'unknown')
+                        self.logger.error(f"Error processing {handle}: {e}")
+        else:
+            # Sequential processing
+            for i, product in enumerate(products_to_process, 1):
+                try:
+                    result = self._process_single_product(product, i, total)
+                    results.append(result)
+                except Exception as e:
+                    handle = product.get('Handle', 'unknown')
+                    self.logger.error(f"Error processing {handle}: {e}")
+        
+        # Log performance summary
+        self._log_performance_summary(len(results), self._start_time)
+        
+        # Collect tagged and untagged products
         tagged_products = []
         untagged_products = []
         untagged_originals = []
         
-        for i, product in enumerate(products, 1):
-            handle = product.get('Handle', '')
+        for result in results:
+            handle = result['handle']
+            product = result['product']
+            product_dict = result['product_dict']
+            rule_tags = result['rule_tags']
+            ai_tags = result['ai_tags']
+            final_tags = result['final_tags']
+            forced_category = result['forced_category']
+            product_category = result['product_category']
+            ai_metadata = result['ai_metadata']
             
-            # Skip if already processed
-            if handle in processed_handles:
-                self.logger.info(f"Skipping already processed product: {handle}")
-                continue
+            self.logger.debug(f"Product: {handle} | Category: {product_category} | Final tags: {final_tags}")
             
-            product_dict = {
-                'handle': handle,
-                'title': product.get('Title', ''),
-                'description': product.get('Body (HTML)', ''),
-                'option1_name': product.get('Option1 Name', ''),
-                'option1_value': product.get('Option1 Value', ''),
-                'option2_name': product.get('Option2 Name', ''),
-                'option2_value': product.get('Option2 Value', ''),
-                'option3_name': product.get('Option3 Name', ''),
-                'option3_value': product.get('Option3 Value', ''),
-            }
-            
-            # Get rule-based tags first to determine category
-            rule_tags, forced_category = self.get_rule_based_tags(product_dict['handle'], product_dict['title'], product_dict['description'])
-            
-            # Determine preliminary product category for AI prompting
-            preliminary_category = None
-            max_priority = -1
-            for tag in rule_tags:
-                if tag in self.category_tags:
-                    priority = self.category_priority.get(tag, 0)
-                    if priority > max_priority:
-                        max_priority = priority
-                        preliminary_category = tag
-            
-            # Override with forced category from handle
-            if forced_category:
-                preliminary_category = forced_category
-            
-            # Get AI suggestions with category-aware prompting (returns tuple with metadata)
-            ai_tags, ai_metadata = self.get_ai_tags(product_dict, category=preliminary_category)
-            
-            # Combine and deduplicate
-            all_tags = list(set(ai_tags + rule_tags))
-            
-            # Determine product category with priority
-            product_category = None
-            max_priority = -1
-            for tag in all_tags:
-                if tag in self.category_tags:
-                    priority = self.category_priority.get(tag, 0)
-                    if priority > max_priority:
-                        max_priority = priority
-                        product_category = tag
-            
-            # Override with forced category from handle
-            if forced_category:
-                product_category = forced_category
-            
-            # Infer vaping style from VG/PG ratio for e-liquids
-            inferred_tags = []
-            if product_category == 'e-liquid':
-                for tag in all_tags:
-                    if '/' in tag and tag in self.approved_tags.get('vg_ratio', {}).get('tags', []):
-                        try:
-                            vg, pg = map(int, tag.split('/'))
-                            if pg >= 50:
-                                inferred_tags.append('mouth-to-lung')
-                            elif 60 <= vg <= 70:
-                                inferred_tags.append('restricted-direct-to-lung')
-                            elif vg >= 70:
-                                inferred_tags.append('direct-to-lung')
-                        except ValueError:
-                            pass
-            all_tags.extend(inferred_tags)
-            all_tags = list(set(all_tags))
-            
-            # Filter tags based on applies_to and enforce category limits
-            tag_by_cat = defaultdict(list)
-            for tag in all_tags:
-                cat = self.tag_to_category.get(tag)
-                
-                # Special handling for range-based categories
-                if not cat:
-                    # Check if tag matches CBD strength pattern (e.g., "3000mg")
-                    if re.match(r'^\d+mg$', tag):
-                        cbd_config = self.approved_tags.get('cbd_strength', {})
-                        if cbd_config.get('range') and product_category == 'CBD':
-                            cat = 'cbd_strength'
-                
-                if cat == 'category':
-                    continue
-                cat_data = self.approved_tags.get(cat, {})
-                applies_to = cat_data.get('applies_to', ['all']) if isinstance(cat_data, dict) else ['all']
-                if 'all' in applies_to or product_category in applies_to:
-                    tag_by_cat[cat].append(tag)
-            
-            # Sort tags within each category by specificity (longer tags first)
-            for cat in tag_by_cat:
-                if cat == 'accessory_type':
-                    # Prioritize charger over battery
-                    tag_by_cat[cat].sort(key=lambda t: (0 if t == 'charger' else 1 if t == 'battery' else 2, -len(t)))
-                else:
-                    tag_by_cat[cat].sort(key=len, reverse=True)
-            
-            final_tags = []
-            for cat, tags in tag_by_cat.items():
-                final_tags.extend(tags[:1])  # Keep at most one per category
-            
-            self.logger.info(f"Product: {product_dict['handle']} | All tags: {all_tags} | Product category: {product_category} | Tag by cat: {dict(tag_by_cat)} | Final tags: {final_tags}")
-            
-            # Flagging for ambiguous products
-            flagged = False
-            nic_strengths = tag_by_cat.get('nicotine_strength', [])
-            if len(nic_strengths) > 1:
-                flagged = True
-            if 'device' in final_tags and 'e-liquid' in final_tags:
-                flagged = True
-            
-            self.logger.info(f"Product: {product_dict['handle']} | Product category: {product_category} | Final tags: {final_tags}")
-            
-            # Insert into audit DB with AI metadata
+            # Insert into audit DB with AI metadata (thread-safe)
             if self.audit_db and self.run_id:
-                self.audit_db.insert_product(
-                    run_id=self.run_id,
-                    handle=handle,
-                    title=product_dict['title'],
-                    csv_type=self.default_product_type or '',
-                    effective_type=product_category or '',
-                    description=product_dict['description'],
-                    rule_tags=rule_tags,
-                    ai_tags=ai_tags,
-                    final_tags=final_tags,
-                    forced_category=forced_category,
-                    device_evidence=bool('device' in final_tags),
-                    skipped=0,
-                    ai_prompt=ai_metadata.get('prompt'),
-                    ai_model_output=ai_metadata.get('model_output'),
-                    ai_confidence=ai_metadata.get('confidence'),
-                    ai_reasoning=ai_metadata.get('reasoning')
-                )
+                with self._lock:
+                    self.audit_db.insert_product(
+                        run_id=self.run_id,
+                        handle=handle,
+                        title=product_dict['title'],
+                        csv_type=self.default_product_type or '',
+                        effective_type=product_category or '',
+                        description=product_dict['description'],
+                        rule_tags=rule_tags,
+                        ai_tags=ai_tags,
+                        final_tags=final_tags,
+                        forced_category=forced_category,
+                        device_evidence=bool('device' in final_tags),
+                        skipped=0,
+                        ai_prompt=ai_metadata.get('prompt'),
+                        ai_model_output=ai_metadata.get('model_output'),
+                        ai_confidence=ai_metadata.get('confidence'),
+                        ai_reasoning=ai_metadata.get('reasoning')
+                    )
             
-            # Create output product with only required fields
+            # Create output product
             product_output = {
                 'Handle': product.get('Handle', ''),
                 'Variant SKU': product.get('Variant SKU', ''),
                 'Tags': ', '.join(final_tags)
             }
-            # Only add to tagged_products when we have tags — otherwise track as untagged
+            
             if product_output['Tags'].strip():
                 tagged_products.append(product_output)
             else:
                 untagged_products.append(product_output)
                 untagged_originals.append(product)
-            
-            if i % 50 == 0:
-                self.logger.info(f"Processed {i}/{len(products)} products")
         
         # Complete the run if audit DB is used
         if self.audit_db and self.run_id:
@@ -1063,6 +1187,7 @@ CONSISTENCY EXAMPLES:
                 writer.writerows(tagged_products)
         
         self.logger.info(f"Tagged products saved to {output_file}")
+        self.logger.info(f"  Tagged: {len(tagged_products)}, Untagged: {len(untagged_products)}")
         
         # Save untagged products
         untagged_file = output_file.parent / 'controlled_untagged_products.csv'
@@ -1222,7 +1347,9 @@ if __name__ == "__main__":
         verbose=args.verbose,
         default_product_type=args.type,
         audit_db_path=args.audit_db,
-        run_id=args.run_id
+        run_id=args.run_id,
+        max_workers=args.workers,
+        no_parallel=args.no_parallel
     )
     
     # Determine input file
