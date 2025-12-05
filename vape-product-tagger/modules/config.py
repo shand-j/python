@@ -11,6 +11,8 @@ except Exception:
     def load_dotenv(*args, **kwargs):
         return None
 
+from .ollama_utils import normalize_ollama_host
+
 
 class Config:
     """Configuration manager for the vape product tagger application"""
@@ -32,7 +34,8 @@ class Config:
                 load_dotenv(config_path)
         
         # Ollama Configuration
-        self.ollama_base_url = os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+        raw_host = os.getenv('OLLAMA_HOST') or os.getenv('OLLAMA_BASE_URL')
+        self.ollama_base_url = normalize_ollama_host(raw_host)
         self.ollama_model = os.getenv('OLLAMA_MODEL', 'llama2')
         self.ollama_timeout = int(os.getenv('OLLAMA_TIMEOUT', 60))
         

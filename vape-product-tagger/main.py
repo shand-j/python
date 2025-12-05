@@ -23,6 +23,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import os
 from tag_audit_db import TagAuditDB
+from modules.ollama_utils import normalize_ollama_host
 
 def parse_arguments():
     """Parse command line arguments"""
@@ -410,7 +411,8 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
     def _get_ai_tags_ollama_http(self, prompt):
         """Call Ollama via HTTP API for better parallel performance"""
         # Support both OLLAMA_HOST and OLLAMA_BASE_URL env vars
-        ollama_host = os.getenv('OLLAMA_HOST') or os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+        raw_host = os.getenv('OLLAMA_HOST') or os.getenv('OLLAMA_BASE_URL')
+        ollama_host = normalize_ollama_host(raw_host)
         url = f"{ollama_host}/api/chat"
         
         payload = {

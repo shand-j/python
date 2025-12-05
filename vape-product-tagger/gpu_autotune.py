@@ -24,34 +24,10 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import deque
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
-from urllib.parse import urlparse
 import requests
 from dotenv import load_dotenv
 
-
-def _normalize_ollama_host(raw_host: Optional[str]) -> str:
-    """Ensure Ollama host has scheme and port so requests won't fail."""
-    default_host = 'http://localhost:11434'
-    if not raw_host:
-        return default_host
-
-    host = raw_host.strip().rstrip('/')
-    if not host:
-        return default_host
-
-    if '://' not in host:
-        host = f"http://{host}"
-
-    parsed = urlparse(host)
-    netloc = parsed.netloc or parsed.path
-    if not netloc:
-        return default_host
-
-    if ':' not in netloc and not netloc.endswith(']'):
-        netloc = f"{netloc}:11434"
-
-    normalized = parsed._replace(netloc=netloc, path='', params='', query='', fragment='')
-    return normalized.geturl().rstrip('/')
+from modules.ollama_utils import normalize_ollama_host
 
 
 @dataclass
@@ -187,7 +163,7 @@ class AutoTuner:
             load_dotenv(config_path)
             
         raw_host = os.getenv('OLLAMA_HOST') or os.getenv('OLLAMA_BASE_URL')
-        self.ollama_host = _normalize_ollama_host(raw_host)
+        self.ollama_host = normalize_ollama_host(raw_host)
         
         # OLLAMA_NUM_PARALLEL - set if provided, otherwise read from env
         self.ollama_num_parallel = ollama_num_parallel or int(os.getenv('OLLAMA_NUM_PARALLEL', 8))
