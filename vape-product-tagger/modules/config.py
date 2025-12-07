@@ -39,10 +39,21 @@ class Config:
         self.ollama_model = os.getenv('OLLAMA_MODEL', 'llama2')
         self.ollama_timeout = int(os.getenv('OLLAMA_TIMEOUT', 60))
         
+        # AI Cascade Configuration
+        self.primary_ai_model = os.getenv('PRIMARY_AI_MODEL', 'mistral:latest')
+        self.secondary_ai_model = os.getenv('SECONDARY_AI_MODEL', 'gpt-oss:latest')
+        self.tertiary_ai_model = os.getenv('TERTIARY_AI_MODEL', 'llama3.1:latest')
+        self.enable_third_opinion = os.getenv('ENABLE_THIRD_OPINION', 'true').lower() == 'true'
+        
         # AI Processing Configuration
         self.ai_confidence_threshold = float(os.getenv('AI_CONFIDENCE_THRESHOLD', 0.7))
         self.enable_ai_tagging = os.getenv('ENABLE_AI_TAGGING', 'true').lower() == 'true'
         self.cache_ai_tags = os.getenv('CACHE_AI_TAGS', 'true').lower() == 'true'
+        
+        # Pipeline Configuration
+        self.pipeline_mode = os.getenv('PIPELINE_MODE', 'local')
+        self.auto_review_interface = os.getenv('AUTO_REVIEW_INTERFACE', 'false').lower() == 'true'
+        self.training_data_auto_export = os.getenv('TRAINING_DATA_AUTO_EXPORT', 'true').lower() == 'true'
         
         # Batch Processing Configuration
         self.batch_size = int(os.getenv('BATCH_SIZE', 10))
