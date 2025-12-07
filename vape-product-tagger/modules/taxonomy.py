@@ -1,251 +1,214 @@
 """
 Vape Product Taxonomy Module
 Defines comprehensive hierarchical taxonomy for vaping products
+Uses approved_tags.json as single source of truth for allowed tags
 """
 
 class VapeTaxonomy:
     """Comprehensive vaping product taxonomy definitions"""
     
-    # Device Type Taxonomy
-    DEVICE_TYPES = {
-        "Disposable": {
-            "tags": ["Disposable", "Single Use", "Disposable Vape"],
-            "keywords": ["disposable", "single use", "throw away", "one time"]
+    # Category Keywords (for detection only, approved_tags.json has allowed category tags)
+    CATEGORY_KEYWORDS = {
+        "e-liquid": ["e-liquid", "eliquid", "e liquid", "vape juice", "vape liquid", "ejuice"],
+        "nicotine_pouches": ["nicotine pouch", "nic pouch", "pouch", "snus"],
+        "disposable": ["disposable", "single use", "throw away", "one time", "disposable vape"],
+        "device": ["device", "vape device", "vaping device", "mod", "vape mod", "box mod"],
+        "pod_system": ["pod system", "pod mod", "pod device", "pod kit"],
+        "box_mod": ["box mod", "box", "square mod"],
+        "tank": ["tank", "vape tank", "clearomizer", "atomizer tank"],
+        "coil": ["coil", "replacement coil", "coil head", "atomizer head"],
+        "accessory": ["accessory", "accessories", "vape accessory"],
+        "pod": ["pod", "replacement pod", "prefilled pod", "cartridge"],
+        "CBD": ["cbd", "cannabidiol", "hemp"]
+    }
+    
+    # Device Style Keywords (maps to device_style tags in approved_tags.json)
+    DEVICE_STYLE_KEYWORDS = {
+        "pen_style": ["pen", "pen style", "vape pen"],
+        "pod_style": ["pod style", "pod-style"],
+        "box_style": ["box", "box style", "boxy", "square"],
+        "stick_style": ["stick", "stick style", "tube", "cylindrical"],
+        "compact": ["compact", "small", "mini", "portable", "pocket"],
+        "mini": ["mini", "micro", "tiny"]
+    }
+    
+    # Flavor Type Keywords (approved_tags.json: fruity, ice, tobacco, desserts/bakery, beverages, nuts, spices_&_herbs, cereal, unflavoured)
+    # Secondary flavor keywords captured opportunistically for richer data
+    FLAVOR_KEYWORDS = {
+        "fruity": {
+            "primary_keywords": ["fruit", "fruity"],
+            "secondary_keywords": [
+                # Citrus
+                "lemon", "lime", "orange", "grapefruit", "citrus", "tangerine", "mandarin",
+                # Berry
+                "strawberry", "raspberry", "blueberry", "blackberry", "berry", "cranberry",
+                # Tropical
+                "mango", "pineapple", "coconut", "papaya", "guava", "passion fruit", "tropical", "lychee",
+                # Stone Fruit
+                "peach", "plum", "apricot", "nectarine", "cherry",
+                # Other Fruits
+                "apple", "pear", "grape", "watermelon", "melon", "kiwi", "banana"
+            ]
         },
-        "Rechargeable": {
-            "tags": ["Rechargeable", "Reusable", "Rechargeable Device"],
-            "keywords": ["rechargeable", "reusable", "refillable"]
+        "ice": {
+            "primary_keywords": ["ice", "iced", "icy", "cool", "cooling", "menthol", "mint", "freeze", "frozen", "arctic"],
+            "secondary_keywords": ["peppermint", "spearmint", "wintergreen", "eucalyptus", "cold"]
         },
-        "Pod": {
-            "tags": ["Pod System", "Pod", "Pod Device"],
-            "keywords": ["pod", "pod system", "pod mod"]
+        "tobacco": {
+            "primary_keywords": ["tobacco"],
+            "secondary_keywords": ["virginia", "havana", "cuban", "burley", "cigar", "cigarette", "classic tobacco", "sweet tobacco", "honey tobacco", "caramel tobacco", "dark tobacco", "bold tobacco"]
         },
-        "Mod": {
-            "tags": ["Mod", "Vape Mod", "Advanced Device"],
-            "keywords": ["mod", "vape mod", "box mod"]
+        "desserts/bakery": {
+            "primary_keywords": ["dessert", "bakery", "sweet", "pastry"],
+            "secondary_keywords": ["custard", "vanilla", "cookie", "cake", "donut", "waffle", "cream", "creamy", "pudding", "flan", "caramel", "chocolate", "toffee"]
         },
-        "AIO": {
-            "tags": ["AIO", "All-in-One", "All in One"],
-            "keywords": ["aio", "all-in-one", "all in one"]
+        "beverages": {
+            "primary_keywords": ["beverage", "drink", "soda", "cola"],
+            "secondary_keywords": ["coffee", "espresso", "cappuccino", "latte", "mocha", "tea", "green tea", "cocktail", "mojito", "margarita", "energy drink"]
+        },
+        "nuts": {
+            "primary_keywords": ["nut", "nuts", "nutty"],
+            "secondary_keywords": ["almond", "hazelnut", "peanut", "walnut", "pecan", "pistachio"]
+        },
+        "spices_&_herbs": {
+            "primary_keywords": ["spice", "spices", "herb", "herbs", "spicy"],
+            "secondary_keywords": ["cinnamon", "vanilla", "anise", "licorice", "ginger", "clove", "cardamom"]
+        },
+        "cereal": {
+            "primary_keywords": ["cereal", "grain"],
+            "secondary_keywords": ["oat", "wheat", "corn", "rice", "granola", "muesli"]
+        },
+        "unflavoured": {
+            "primary_keywords": ["unflavoured", "unflavored", "plain", "natural", "no flavor", "no flavour"],
+            "secondary_keywords": []
         }
     }
     
-    # Device Form Taxonomy
-    DEVICE_FORMS = {
-        "Pen": {
-            "tags": ["Pen Style", "Pen", "Stick Style"],
-            "keywords": ["pen", "stick", "pen style"]
-        },
-        "Box Mod": {
-            "tags": ["Box Mod", "Box", "Square Mod"],
-            "keywords": ["box mod", "box", "square"]
-        },
-        "Stick": {
-            "tags": ["Stick", "Stick Style", "Tube"],
-            "keywords": ["stick", "tube", "cylindrical"]
-        },
-        "Compact": {
-            "tags": ["Compact", "Small", "Portable", "Mini"],
-            "keywords": ["compact", "small", "mini", "portable", "pocket"]
-        }
+    # Nicotine Type Keywords (approved_tags.json: nic_salt, freebase_nicotine, traditional_nicotine, pouch)
+    NICOTINE_TYPE_KEYWORDS = {
+        "nic_salt": ["nic salt", "nicotine salt", "salt nicotine", "salt nic", "smooth"],
+        "freebase_nicotine": ["freebase", "free base", "freebase nicotine"],
+        "traditional_nicotine": ["traditional", "traditional nicotine", "standard nicotine"],
+        "pouch": ["pouch", "nicotine pouch"]
     }
     
-    # Flavor Taxonomy with Detailed Sub-Categories
-    FLAVOR_TAXONOMY = {
-        "Fruit": {
-            "tags": ["Fruit", "Fruit Flavor", "Fruity"],
-            "keywords": ["fruit", "fruity"],
-            "sub_categories": {
-                "Citrus": {
-                    "tags": ["Citrus", "Citrus Fruit"],
-                    "keywords": ["lemon", "lime", "orange", "grapefruit", "citrus", "tangerine"]
-                },
-                "Berry": {
-                    "tags": ["Berry", "Berry Flavor"],
-                    "keywords": ["strawberry", "raspberry", "blueberry", "blackberry", "berry", "cranberry"]
-                },
-                "Tropical": {
-                    "tags": ["Tropical", "Tropical Fruit"],
-                    "keywords": ["mango", "pineapple", "coconut", "papaya", "guava", "passion fruit", "tropical"]
-                },
-                "Stone Fruit": {
-                    "tags": ["Stone Fruit", "Peach", "Plum"],
-                    "keywords": ["peach", "plum", "apricot", "nectarine", "cherry"]
-                }
-            }
-        },
-        "Dessert": {
-            "tags": ["Dessert", "Dessert Flavor", "Sweet"],
-            "keywords": ["dessert", "sweet"],
-            "sub_categories": {
-                "Custard": {
-                    "tags": ["Custard", "Creamy Custard"],
-                    "keywords": ["custard", "vanilla custard", "egg custard"]
-                },
-                "Bakery": {
-                    "tags": ["Bakery", "Baked Goods"],
-                    "keywords": ["cookie", "cake", "pastry", "donut", "waffle", "bakery"]
-                },
-                "Cream": {
-                    "tags": ["Cream", "Creamy"],
-                    "keywords": ["cream", "creamy", "whipped cream", "ice cream"]
-                },
-                "Pudding": {
-                    "tags": ["Pudding", "Pudding Flavor"],
-                    "keywords": ["pudding", "flan", "creme brulee"]
-                }
-            }
-        },
-        "Menthol": {
-            "tags": ["Menthol", "Cooling", "Cool"],
-            "keywords": ["menthol", "cool", "cooling", "ice", "icy"],
-            "sub_categories": {
-                "Cool": {
-                    "tags": ["Cool", "Cooling Effect", "Ice"],
-                    "keywords": ["ice", "icy", "cool", "cold"]
-                },
-                "Mint": {
-                    "tags": ["Mint", "Peppermint", "Spearmint"],
-                    "keywords": ["mint", "peppermint", "spearmint"]
-                },
-                "Arctic": {
-                    "tags": ["Arctic", "Extreme Cool", "Freeze"],
-                    "keywords": ["arctic", "freeze", "frozen", "extreme cool"]
-                },
-                "Herbal Mint": {
-                    "tags": ["Herbal Mint", "Natural Mint"],
-                    "keywords": ["herbal mint", "natural mint", "eucalyptus"]
-                }
-            }
-        },
-        "Tobacco": {
-            "tags": ["Tobacco", "Tobacco Flavor"],
-            "keywords": ["tobacco"],
-            "sub_categories": {
-                "Classic": {
-                    "tags": ["Classic Tobacco", "Traditional Tobacco"],
-                    "keywords": ["classic tobacco", "traditional", "pure tobacco"]
-                },
-                "Sweet": {
-                    "tags": ["Sweet Tobacco", "Honey Tobacco"],
-                    "keywords": ["sweet tobacco", "honey tobacco", "caramel tobacco"]
-                },
-                "Blend": {
-                    "tags": ["Tobacco Blend", "Mixed Tobacco"],
-                    "keywords": ["blend", "mixed tobacco", "tobacco blend"]
-                },
-                "Dark": {
-                    "tags": ["Dark Tobacco", "Bold Tobacco"],
-                    "keywords": ["dark tobacco", "bold", "robust tobacco"]
-                }
-            }
-        },
-        "Beverage": {
-            "tags": ["Beverage", "Drink Flavor"],
-            "keywords": ["beverage", "drink"],
-            "sub_categories": {
-                "Coffee": {
-                    "tags": ["Coffee", "Espresso", "Caffeine"],
-                    "keywords": ["coffee", "espresso", "cappuccino", "latte", "mocha"]
-                },
-                "Soda": {
-                    "tags": ["Soda", "Cola", "Fizzy Drink"],
-                    "keywords": ["cola", "soda", "fizzy", "pop"]
-                },
-                "Cocktail": {
-                    "tags": ["Cocktail", "Mixed Drink"],
-                    "keywords": ["cocktail", "mojito", "margarita", "pina colada"]
-                },
-                "Tea": {
-                    "tags": ["Tea", "Tea Flavor"],
-                    "keywords": ["tea", "green tea", "black tea", "chai"]
-                }
-            }
-        }
+    # Capacity Keywords (approved_tags.json: 2ml, 2.5ml, 3ml, etc.)
+    CAPACITY_KEYWORDS = ["2ml", "2.5ml", "3ml", "4ml", "5ml", "6ml", "7ml", "8ml", "9ml", "10ml"]
+    
+    # Bottle Size Keywords (approved_tags.json: 5ml, 10ml, 20ml, 30ml, 50ml, 100ml, shortfill)
+    BOTTLE_SIZE_KEYWORDS = {
+        "5ml": ["5ml", "5 ml"],
+        "10ml": ["10ml", "10 ml"],
+        "20ml": ["20ml", "20 ml"],
+        "30ml": ["30ml", "30 ml"],
+        "50ml": ["50ml", "50 ml"],
+        "100ml": ["100ml", "100 ml"],
+        "shortfill": ["shortfill", "short fill"]
     }
     
-    # Nicotine Strength Taxonomy
-    NICOTINE_STRENGTH = {
-        "Zero": {
-            "range": [0, 0],
-            "tags": ["0mg", "Zero Nicotine", "No Nicotine", "Nicotine Free"],
-            "keywords": ["0mg", "zero", "no nicotine", "nicotine free"]
-        },
-        "Low": {
-            "range": [1, 6],
-            "tags": ["Low Strength", "Mild Strength", "Light"],
-            "keywords": ["3mg", "6mg", "low", "mild", "light"]
-        },
-        "Medium": {
-            "range": [7, 12],
-            "tags": ["Medium Strength", "Moderate Strength", "Regular"],
-            "keywords": ["9mg", "12mg", "medium", "moderate", "regular"]
-        },
-        "High": {
-            "range": [13, 99],
-            "tags": ["High Strength", "Strong", "Extra Strong"],
-            "keywords": ["18mg", "20mg", "high", "strong", "extra strong"]
-        }
+    # CBD Form Keywords (approved_tags.json)
+    CBD_FORM_KEYWORDS = {
+        "tincture": ["tincture", "drops", "liquid drops"],
+        "oil": ["oil", "cbd oil"],
+        "gummy": ["gummy", "gummies", "gummie"],
+        "capsule": ["capsule", "capsules", "pill", "pills"],
+        "topical": ["topical", "cream", "lotion", "balm", "salve"],
+        "patch": ["patch", "patches", "transdermal"],
+        "paste": ["paste"],
+        "shot": ["shot", "shots"],
+        "isolate": ["isolate", "crystal"],
+        "edible": ["edible", "edibles", "food"],
+        "beverage": ["beverage", "drink", "tea", "coffee"]
     }
     
-    # Nicotine Type Taxonomy
-    NICOTINE_TYPES = {
-        "Freebase": {
-            "tags": ["Freebase Nicotine", "Traditional Nicotine", "Standard Nicotine"],
-            "keywords": ["freebase", "traditional", "standard nicotine"]
-        },
-        "Salt": {
-            "tags": ["Nicotine Salt", "Salt Nicotine", "Nic Salt", "Smooth", "Quick Absorption"],
-            "keywords": ["salt", "nic salt", "nicotine salt", "smooth", "quick absorption"]
-        }
+    # CBD Type Keywords (approved_tags.json)
+    CBD_TYPE_KEYWORDS = {
+        "full_spectrum": ["full spectrum", "full-spectrum"],
+        "broad_spectrum": ["broad spectrum", "broad-spectrum"],
+        "isolate": ["isolate", "pure cbd", "cbd isolate"],
+        "cbg": ["cbg", "cannabigerol"],
+        "cbda": ["cbda", "cannabidiolic acid"]
     }
     
-    # Compliance and Age Verification Tags
-    COMPLIANCE_TAGS = {
-        "age_restriction": ["18+", "Age Restricted", "Adult Only", "Age Verification Required"],
-        "regional_compliance": ["US Compliant", "EU Compliant", "TPD Compliant"],
-        "shipping_restriction": ["Shipping Restrictions Apply", "Limited Shipping"],
-        "nicotine_warnings": ["Contains Nicotine", "Nicotine Warning", "Addictive Substance"]
+    # Power Supply Keywords (approved_tags.json)
+    POWER_SUPPLY_KEYWORDS = {
+        "rechargeable": ["rechargeable", "usb", "usb-c", "charging", "charge"],
+        "removable_battery": ["removable battery", "18650", "21700", "replaceable battery"]
     }
     
-    # Device Compatibility Tags
-    COMPATIBILITY_TAGS = {
-        "coil_types": ["Sub-Ohm", "Plus-Ohm", "Mesh Coil", "Ceramic Coil"],
-        "battery_types": ["Built-in Battery", "Removable Battery", "18650", "21700"],
-        "tank_systems": ["Top Fill", "Bottom Fill", "Side Fill"],
-        "usage_profiles": ["MTL", "DL", "RDL", "Mouth to Lung", "Direct Lung"]
+    # Pod Type Keywords (approved_tags.json)
+    POD_TYPE_KEYWORDS = {
+        "prefilled_pod": ["prefilled", "pre-filled", "pre filled"],
+        "replacement_pod": ["replacement", "refillable", "empty pod"]
+    }
+    
+    # Vaping Style Keywords (approved_tags.json)
+    VAPING_STYLE_KEYWORDS = {
+        "mouth-to-lung": ["mtl", "mouth to lung", "mouth-to-lung"],
+        "direct-to-lung": ["dtl", "direct to lung", "direct-to-lung", "sub ohm", "subohm"],
+        "restricted-direct-to-lung": ["rdtl", "restricted dtl", "restricted direct to lung", "restricted-direct-to-lung"]
     }
     
     @classmethod
-    def get_all_flavor_families(cls):
-        """Get all main flavor families"""
-        return list(cls.FLAVOR_TAXONOMY.keys())
+    def get_all_flavor_types(cls):
+        """Get all approved flavor types from FLAVOR_KEYWORDS"""
+        return list(cls.FLAVOR_KEYWORDS.keys())
     
     @classmethod
-    def get_flavor_subcategories(cls, flavor_family):
-        """Get sub-categories for a specific flavor family"""
-        if flavor_family in cls.FLAVOR_TAXONOMY:
-            return cls.FLAVOR_TAXONOMY[flavor_family].get("sub_categories", {})
-        return {}
+    def get_flavor_secondary_keywords(cls, flavor_type):
+        """Get secondary keywords for a specific flavor type for opportunistic tagging"""
+        if flavor_type in cls.FLAVOR_KEYWORDS:
+            return cls.FLAVOR_KEYWORDS[flavor_type].get("secondary_keywords", [])
+        return []
     
     @classmethod
-    def get_nicotine_strength_level(cls, mg_value):
-        """Determine nicotine strength level from mg value"""
+    def get_nicotine_strength_tag(cls, mg_value):
+        """
+        Get nicotine strength tag from mg value
+        Returns the value as a tag (e.g., 3mg, 12mg, 0mg)
+        Max allowed: 20mg
+        """
         try:
             mg = float(mg_value)
-            for level, data in cls.NICOTINE_STRENGTH.items():
-                if data["range"][0] <= mg <= data["range"][1]:
-                    return level, data["tags"]
+            if mg < 0:
+                return None
+            if mg > 20:
+                return None  # Illegal - max 20mg
+            # Return as formatted tag
+            if mg == int(mg):
+                return f"{int(mg)}mg"
+            else:
+                return f"{mg}mg"
         except (ValueError, TypeError):
-            pass
-        return None, []
+            return None
     
     @classmethod
-    def get_all_device_types(cls):
-        """Get all device type categories"""
-        return list(cls.DEVICE_TYPES.keys())
+    def get_cbd_strength_tag(cls, mg_value):
+        """
+        Get CBD strength tag from mg value
+        Returns the value as a tag (e.g., 1000mg, 5000mg)
+        Max allowed: 50000mg
+        """
+        try:
+            mg = float(mg_value)
+            if mg < 0:
+                return None
+            if mg > 50000:
+                return None  # Max 50000mg
+            # Return as formatted tag
+            if mg == int(mg):
+                return f"{int(mg)}mg"
+            else:
+                return f"{mg}mg"
+        except (ValueError, TypeError):
+            return None
     
     @classmethod
-    def get_all_device_forms(cls):
-        """Get all device form categories"""
-        return list(cls.DEVICE_FORMS.keys())
+    def get_all_categories(cls):
+        """Get all approved category keywords"""
+        return list(cls.CATEGORY_KEYWORDS.keys())
+    
+    @classmethod
+    def get_all_device_styles(cls):
+        """Get all approved device style keywords"""
+        return list(cls.DEVICE_STYLE_KEYWORDS.keys())

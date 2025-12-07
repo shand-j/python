@@ -33,6 +33,7 @@ config.env
 output/
 logs/
 cache/
+*.log
 
 # IDE
 .vscode/

@@ -18,12 +18,17 @@ import threading
 import time
 from pathlib import Path
 from datetime import datetime
-from collections import defaultdict
+from collections import defaultdict, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dotenv import load_dotenv
 import os
-from tag_audit_db import TagAuditDB
-from modules.ollama_utils import normalize_ollama_host
+
+# Ensure the project root is importable so local modules resolve when running from scripts/
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+from scripts.tag_audit_db import TagAuditDB
 
 def parse_arguments():
     """Parse command line arguments"""
@@ -143,6 +148,11 @@ class ControlledTagger:
         self.hf_repo_id = os.getenv('HF_REPO_ID')
         self.hf_token = os.getenv('HF_TOKEN')
         self.base_model = os.getenv('BASE_MODEL', 'meta-llama/Meta-Llama-3.1-8B-Instruct')
+        self.ollama_host = os.getenv('OLLAMA_HOST') or os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
+        self.ollama_timeout = int(os.getenv('OLLAMA_TIMEOUT', 60))
+        self.ollama_num_parallel = int(os.getenv('OLLAMA_NUM_PARALLEL', os.getenv('MAX_WORKERS', 4)))
+        self.secondary_ollama_model = os.getenv('OLLAMA_SECONDARY_MODEL', 'gpt-oss:latest')
+        self.progress_rate_window = max(5, int(os.getenv('PROGRESS_RATE_WINDOW_SECONDS', 30)))
         
         self.no_ai = no_ai
         # Allow CLI override or env var to force a product type for the run
@@ -208,22 +218,32 @@ class ControlledTagger:
             self.max_workers = int(os.getenv('MAX_WORKERS', 4))
         
         self.batch_size = int(os.getenv('BATCH_SIZE', 10))
+        if self.parallel_processing and self.max_workers > self.ollama_num_parallel:
+            self.logger.warning(
+                "MAX_WORKERS (%s) exceeds OLLAMA_NUM_PARALLEL (%s); Ollama may queue requests",
+                self.max_workers,
+                self.ollama_num_parallel,
+            )
         
-        # HTTP session with connection pooling for Ollama API calls
-        self._http_session = requests.Session()
-        adapter = requests.adapters.HTTPAdapter(
+        # HTTP adapter reused per-thread for Ollama API calls
+        self._http_adapter = requests.adapters.HTTPAdapter(
             pool_connections=self.max_workers,
             pool_maxsize=self.max_workers * 2,
             max_retries=3
         )
-        self._http_session.mount('http://', adapter)
-        self._http_session.mount('https://', adapter)
+        self._http_thread_local = threading.local()
         
         # Performance tracking
         self._processed_count = 0
         self._ai_skipped_count = 0
         self._start_time = None
         self._lock = None  # Will be set when parallel processing starts
+        self._progress_history = deque()
+        self._metrics_lock = threading.Lock()
+        self._ai_call_count = 0
+        self._ai_total_latency = 0.0
+        self._ai_inflight = 0
+        self._ai_max_inflight = 0
         
     def _setup_logger(self, verbose):
         """Setup logger with appropriate level"""
@@ -234,6 +254,41 @@ class ControlledTagger:
         handler.setFormatter(formatter)
         logger.addHandler(handler)
         return logger
+
+    @staticmethod
+    def _format_eta(seconds):
+        """Format ETA seconds into a human-friendly label."""
+        if seconds is None or seconds <= 0:
+            return "~00:00"
+        minutes, secs = divmod(int(round(seconds)), 60)
+        if minutes >= 60:
+            hours, minutes = divmod(minutes, 60)
+            return f"~{hours}h {minutes:02d}m"
+        return f"~{minutes:02d}:{secs:02d}"
+
+    def _get_http_session(self):
+        """Return a thread-local HTTP session for Ollama calls."""
+        if not hasattr(self._http_thread_local, 'session'):
+            session = requests.Session()
+            session.mount('http://', self._http_adapter)
+            session.mount('https://', self._http_adapter)
+            self._http_thread_local.session = session
+        return self._http_thread_local.session
+
+    def _is_ollama_model_available(self, model_name):
+        """Check whether the requested Ollama model is installed locally."""
+        if self.model_backend != 'ollama' or not model_name:
+            return False
+        url = f"{self.ollama_host}/api/show"
+        session = self._get_http_session()
+        try:
+            response = session.post(url, json={'name': model_name}, timeout=self.ollama_timeout)
+            if response.status_code == 404:
+                return False
+            response.raise_for_status()
+            return True
+        except requests.RequestException:
+            return False
     
     def _load_hf_model(self):
         """Lazy load HuggingFace model with LoRA adapters from HF Hub"""
@@ -410,22 +465,41 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
     
     def _get_ai_tags_ollama_http(self, prompt):
         """Call Ollama via HTTP API for better parallel performance"""
-        # Support both OLLAMA_HOST and OLLAMA_BASE_URL env vars
-        raw_host = os.getenv('OLLAMA_HOST') or os.getenv('OLLAMA_BASE_URL')
-        ollama_host = normalize_ollama_host(raw_host)
-        url = f"{ollama_host}/api/chat"
-        
+        url = f"{self.ollama_host}/api/chat"
+        session = self._get_http_session()
+
         payload = {
             "model": self.ollama_model,
             "messages": [{"role": "user", "content": prompt}],
             "stream": False
         }
-        
-        response = self._http_session.post(url, json=payload, timeout=60)
-        response.raise_for_status()
-        
-        result = response.json()
-        return result.get('message', {}).get('content', '').strip()
+
+        with self._metrics_lock:
+            self._ai_inflight += 1
+            if self._ai_inflight > self._ai_max_inflight:
+                self._ai_max_inflight = self._ai_inflight
+        start_time = time.time()
+
+        try:
+            response = session.post(url, json=payload, timeout=self.ollama_timeout)
+            response.raise_for_status()
+            result = response.json()
+            return result.get('message', {}).get('content', '').strip()
+        except requests.Timeout as exc:
+            raise RuntimeError(
+                f"Ollama response timed out after {self.ollama_timeout}s. "
+                "Ensure `OLLAMA_NUM_PARALLEL` matches MAX_WORKERS and the model is loaded."
+            ) from exc
+        except requests.ConnectionError as exc:
+            raise RuntimeError(
+                f"Unable to reach Ollama at {self.ollama_host}. Verify the daemon is running."
+            ) from exc
+        finally:
+            duration = time.time() - start_time
+            with self._metrics_lock:
+                self._ai_inflight = max(0, self._ai_inflight - 1)
+                self._ai_call_count += 1
+                self._ai_total_latency += duration
     
     def get_ai_tags(self, product_or_handle, title=None, description="", category=None):
         """Get AI tag suggestions using controlled vocabulary with category-aware prompting and confidence scoring.
@@ -1002,20 +1076,45 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         for cat, tags in tag_by_cat.items():
             final_tags.extend(tags[:1])  # Keep at most one per category
         
-        # Update performance counter (thread-safe)
+        now = time.time()
         if self._lock:
             with self._lock:
                 self._processed_count += 1
                 count = self._processed_count
+                self._progress_history.append((now, count))
+                while self._progress_history and (now - self._progress_history[0][0]) > self.progress_rate_window:
+                    self._progress_history.popleft()
+                window_start_time, window_start_count = self._progress_history[0]
         else:
             self._processed_count += 1
             count = self._processed_count
+            self._progress_history.append((now, count))
+            while self._progress_history and (now - self._progress_history[0][0]) > self.progress_rate_window:
+                self._progress_history.popleft()
+            window_start_time, window_start_count = self._progress_history[0]
+
+        with self._metrics_lock:
+            ai_inflight = self._ai_inflight
         
-        # Log progress periodically
         if count % 10 == 0 or count == total:
-            elapsed = time.time() - self._start_time
-            rate = count / (elapsed / 60) if elapsed > 0 else 0
-            self.logger.info(f"Progress: {count}/{total} ({count/total*100:.1f}%) | Rate: {rate:.1f} products/min")
+            overall_elapsed = max(now - self._start_time, 1e-6)
+            window_elapsed = max(now - window_start_time, float(self.progress_rate_window))
+            window_delta = max(count - window_start_count, 0)
+            window_rate = window_delta / (window_elapsed / 60)
+            avg_rate = count / (overall_elapsed / 60)
+            remaining = total - count
+            eta_seconds = (remaining / avg_rate) * 60 if avg_rate > 0 and remaining > 0 else 0
+            eta_label = self._format_eta(eta_seconds) if remaining else "~00:00"
+            self.logger.info(
+                "Progress: %d/%d (%.1f%%) | Rate: %.1f/min (avg %.1f/min) | ETA %s | AI inflight: %d",
+                count,
+                total,
+                count / total * 100,
+                window_rate,
+                avg_rate,
+                eta_label,
+                ai_inflight,
+            )
         
         return {
             'handle': handle,
@@ -1033,7 +1132,8 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
     def _log_performance_summary(self, total, start_time, ai_skipped=0):
         """Log final performance statistics"""
         elapsed = time.time() - start_time
-        rate = total / (elapsed / 60) if elapsed > 0 else 0
+        smoothed_elapsed = max(elapsed, 5)
+        rate = total / (smoothed_elapsed / 60)
         ai_calls = total - ai_skipped
         skip_pct = (ai_skipped / total * 100) if total > 0 else 0
         
@@ -1048,6 +1148,31 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         self.logger.info(f"{'─'*60}")
         self.logger.info(f"  AI calls made: {ai_calls}")
         self.logger.info(f"  AI calls skipped: {ai_skipped} ({skip_pct:.1f}%)")
+
+        with self._metrics_lock:
+            ai_call_count = self._ai_call_count
+            ai_total_latency = self._ai_total_latency
+            ai_max_inflight = self._ai_max_inflight
+
+        if ai_call_count:
+            avg_latency = ai_total_latency / ai_call_count
+            self.logger.info(f"  Avg AI latency: {avg_latency:.1f} seconds")
+            self.logger.info(f"  Peak concurrent AI calls: {ai_max_inflight}/{self.ollama_num_parallel}")
+            if (
+                self.parallel_processing
+                and self.max_workers > 1
+                and ai_call_count > 1
+                and ai_max_inflight <= 1
+                and self.ollama_num_parallel > 1
+            ):
+                self.logger.warning(
+                    "Ollama processed AI requests serially (max concurrency %s). "
+                    "Restart the daemon with `ollama serve --num-parallel %s` to unlock parallel AI tagging.",
+                    ai_max_inflight,
+                    self.ollama_num_parallel,
+                )
+        else:
+            self.logger.info("  No AI latency data (all products resolved via rules)")
         self.logger.info(f"{'='*60}\n")
     
     def tag_products(self, input_file, output_file=None, limit=None):
@@ -1096,6 +1221,13 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         self._ai_skipped_count = 0
         self._start_time = time.time()
         self._lock = threading.Lock()
+        self._progress_history.clear()
+        self._progress_history.append((self._start_time, 0))
+        with self._metrics_lock:
+            self._ai_call_count = 0
+            self._ai_total_latency = 0.0
+            self._ai_inflight = 0
+            self._ai_max_inflight = 0
         
         self.logger.info(f"Processing {total} products with {'parallel' if self.parallel_processing else 'sequential'} mode")
         if self.parallel_processing:
@@ -1226,134 +1358,149 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         
         # Secondary AI pass for untagged products
         if untagged_originals and not self.no_ai:
-            self.logger.info(f"Attempting secondary AI tagging for {len(untagged_originals)} untagged products using gpt-oss:latest")
-            original_model = self.ollama_model
-            self.ollama_model = 'gpt-oss:latest'
-            newly_tagged = []
-            still_untagged = []
-            for orig_product in untagged_originals:
-                handle = orig_product.get('Handle', '')
-                title = orig_product.get('Title', '')
-                description = orig_product.get('Body (HTML)', '')
+            secondary_model = self.secondary_ollama_model
+            can_run_secondary = True
+            if not secondary_model:
+                self.logger.info("Skipping secondary AI tagging: OLLAMA_SECONDARY_MODEL not configured")
+                can_run_secondary = False
+            elif not self._is_ollama_model_available(secondary_model):
+                self.logger.warning(
+                    "Skipping secondary AI tagging: model '%s' is not installed on the Ollama daemon",
+                    secondary_model,
+                )
+                can_run_secondary = False
+
+            if can_run_secondary:
+                self.logger.info(
+                    f"Attempting secondary AI tagging for {len(untagged_originals)} untagged products using {secondary_model}"
+                )
+                original_model = self.ollama_model
+                newly_tagged = []
+                still_untagged = []
+                try:
+                    self.ollama_model = secondary_model
+                    for orig_product in untagged_originals:
+                        handle = orig_product.get('Handle', '')
+                        title = orig_product.get('Title', '')
+                        description = orig_product.get('Body (HTML)', '')
+                        
+                        # Get rule-based tags again (in case)
+                        rule_tags_secondary, forced_category_secondary = self.get_rule_based_tags(handle, title, description)
+                        
+                        # Determine preliminary category for secondary AI
+                        preliminary_category_secondary = None
+                        max_priority_secondary = -1
+                        for tag in rule_tags_secondary:
+                            if tag in self.category_tags:
+                                priority = self.category_priority.get(tag, 0)
+                                if priority > max_priority_secondary:
+                                    max_priority_secondary = priority
+                                    preliminary_category_secondary = tag
+                        
+                        # Override with forced category
+                        if forced_category_secondary:
+                            preliminary_category_secondary = forced_category_secondary
+                        
+                        # Get secondary AI tags with category-aware prompting
+                        ai_tags_secondary, _ = self.get_ai_tags(handle, title, description, category=preliminary_category_secondary)
+                        
+                        # Combine (use secondary results, not outer variables)
+                        all_tags = list(set(ai_tags_secondary + rule_tags_secondary))
+                        
+                        # Determine product category with priority (using only rule_tags for secondary)
+                        rule_tags_secondary, forced_category_secondary = self.get_rule_based_tags(handle, title, description)
+                        product_category = None
+                        max_priority = -1
+                        for tag in rule_tags_secondary:
+                            if tag in self.category_tags:
+                                priority = self.category_priority.get(tag, 0)
+                                if priority > max_priority:
+                                    max_priority = priority
+                                    product_category = tag
+                        
+                        # Override with forced category
+                        if forced_category_secondary:
+                            product_category = forced_category_secondary
+                        
+                        # Infer vaping style from VG/PG ratio for e-liquids
+                        inferred_tags = []
+                        if product_category == 'e-liquid':
+                            for tag in all_tags:
+                                if '/' in tag and tag in self.approved_tags.get('vg_ratio', {}).get('tags', []):
+                                    try:
+                                        vg, pg = map(int, tag.split('/'))
+                                        if pg >= 50:
+                                            inferred_tags.append('mouth-to-lung')
+                                        elif 60 <= vg <= 70:
+                                            inferred_tags.append('restricted-direct-to-lung')
+                                        elif vg >= 70:
+                                            inferred_tags.append('direct-to-lung')
+                                    except ValueError:
+                                        pass
+                        all_tags.extend(inferred_tags)
+                        all_tags = list(set(all_tags))
+                        
+                        # Filter tags based on applies_to and enforce category limits
+                        tag_by_cat = defaultdict(list)
+                        for tag in all_tags:
+                            cat = self.tag_to_category.get(tag)
+                            if cat == 'category':
+                                continue
+                            cat_data = self.approved_tags.get(cat, {})
+                            applies_to = cat_data.get('applies_to', ['all']) if isinstance(cat_data, dict) else ['all']
+                            if 'all' in applies_to or product_category in applies_to:
+                                tag_by_cat[cat].append(tag)
+                        
+                        # Sort tags within each category by specificity (longer tags first)
+                        for cat in tag_by_cat:
+                            if cat == 'accessory_type':
+                                # Prioritize charger over battery
+                                tag_by_cat[cat].sort(key=lambda t: (0 if t == 'charger' else 1 if t == 'battery' else 2, -len(t)))
+                            else:
+                                tag_by_cat[cat].sort(key=len, reverse=True)
+                        
+                        final_tags = []
+                        for cat, tags in tag_by_cat.items():
+                            final_tags.extend(tags[:1])  # Keep at most one per category
+                        
+                        self.logger.info(f"Secondary AI for {handle} | Final tags: {final_tags}")
+                        
+                        product_output = {
+                            'Handle': handle,
+                            'Variant SKU': orig_product.get('Variant SKU', ''),
+                            'Tags': ', '.join(final_tags)
+                        }
+                        
+                        if final_tags:
+                            newly_tagged.append(product_output)
+                        else:
+                            still_untagged.append(product_output)
+                finally:
+                    self.ollama_model = original_model
+
+                # Update the lists once after processing
+                tagged_products.extend(newly_tagged)
+                untagged_products[:] = still_untagged
+
+                # Re-save files
+                with open(output_file, 'w', newline='', encoding='utf-8') as f:
+                    if tagged_products:
+                        fieldnames = tagged_products[0].keys()
+                        writer = csv.DictWriter(f, fieldnames=fieldnames)
+                        writer.writeheader()
+                        writer.writerows(tagged_products)
                 
-                # Get rule-based tags again (in case)
-                rule_tags_secondary, forced_category_secondary = self.get_rule_based_tags(handle, title, description)
-                
-                # Determine preliminary category for secondary AI
-                preliminary_category_secondary = None
-                max_priority_secondary = -1
-                for tag in rule_tags_secondary:
-                    if tag in self.category_tags:
-                        priority = self.category_priority.get(tag, 0)
-                        if priority > max_priority_secondary:
-                            max_priority_secondary = priority
-                            preliminary_category_secondary = tag
-                
-                # Override with forced category
-                if forced_category_secondary:
-                    preliminary_category_secondary = forced_category_secondary
-                
-                # Get secondary AI tags with category-aware prompting
-                ai_tags_secondary, _ = self.get_ai_tags(handle, title, description, category=preliminary_category_secondary)
-                
-                # Combine (use secondary results, not outer variables)
-                all_tags = list(set(ai_tags_secondary + rule_tags_secondary))
-                
-                # Determine product category with priority (using only rule_tags for secondary)
-                rule_tags_secondary, forced_category_secondary = self.get_rule_based_tags(handle, title, description)
-                product_category = None
-                max_priority = -1
-                for tag in rule_tags_secondary:
-                    if tag in self.category_tags:
-                        priority = self.category_priority.get(tag, 0)
-                        if priority > max_priority:
-                            max_priority = priority
-                            product_category = tag
-                
-                # Override with forced category
-                if forced_category_secondary:
-                    product_category = forced_category_secondary
-                
-                # Infer vaping style from VG/PG ratio for e-liquids
-                inferred_tags = []
-                if product_category == 'e-liquid':
-                    for tag in all_tags:
-                        if '/' in tag and tag in self.approved_tags.get('vg_ratio', {}).get('tags', []):
-                            try:
-                                vg, pg = map(int, tag.split('/'))
-                                if pg >= 50:
-                                    inferred_tags.append('mouth-to-lung')
-                                elif 60 <= vg <= 70:
-                                    inferred_tags.append('restricted-direct-to-lung')
-                                elif vg >= 70:
-                                    inferred_tags.append('direct-to-lung')
-                            except ValueError:
-                                pass
-                all_tags.extend(inferred_tags)
-                all_tags = list(set(all_tags))
-                
-                # Filter tags based on applies_to and enforce category limits
-                tag_by_cat = defaultdict(list)
-                for tag in all_tags:
-                    cat = self.tag_to_category.get(tag)
-                    if cat == 'category':
-                        continue
-                    cat_data = self.approved_tags.get(cat, {})
-                    applies_to = cat_data.get('applies_to', ['all']) if isinstance(cat_data, dict) else ['all']
-                    if 'all' in applies_to or product_category in applies_to:
-                        tag_by_cat[cat].append(tag)
-                
-                # Sort tags within each category by specificity (longer tags first)
-                for cat in tag_by_cat:
-                    if cat == 'accessory_type':
-                        # Prioritize charger over battery
-                        tag_by_cat[cat].sort(key=lambda t: (0 if t == 'charger' else 1 if t == 'battery' else 2, -len(t)))
+                with open(untagged_file, 'w', newline='', encoding='utf-8') as f:
+                    if untagged_products:
+                        fieldnames = untagged_products[0].keys()
+                        writer = csv.DictWriter(f, fieldnames=fieldnames)
+                        writer.writeheader()
+                        writer.writerows(untagged_products)
+                        self.logger.info(f"After secondary AI: {len(newly_tagged)} newly tagged, {len(still_untagged)} still untagged")
                     else:
-                        tag_by_cat[cat].sort(key=len, reverse=True)
-                
-                final_tags = []
-                for cat, tags in tag_by_cat.items():
-                    final_tags.extend(tags[:1])  # Keep at most one per category
-                
-                self.logger.info(f"Secondary AI for {handle} | Final tags: {final_tags}")
-                
-                product_output = {
-                    'Handle': handle,
-                    'Variant SKU': orig_product.get('Variant SKU', ''),
-                    'Tags': ', '.join(final_tags)
-                }
-                
-                if final_tags:
-                    newly_tagged.append(product_output)
-                else:
-                    still_untagged.append(product_output)
-            
-            # Update the lists
-            tagged_products.extend(newly_tagged)
-            untagged_products[:] = still_untagged
-            
-            # Re-save files
-            with open(output_file, 'w', newline='', encoding='utf-8') as f:
-                if tagged_products:
-                    fieldnames = tagged_products[0].keys()
-                    writer = csv.DictWriter(f, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(tagged_products)
-            
-            with open(untagged_file, 'w', newline='', encoding='utf-8') as f:
-                if untagged_products:
-                    fieldnames = untagged_products[0].keys()
-                    writer = csv.DictWriter(f, fieldnames=fieldnames)
-                    writer.writeheader()
-                    writer.writerows(untagged_products)
-                    self.logger.info(f"After secondary AI: {len(newly_tagged)} newly tagged, {len(still_untagged)} still untagged")
-                else:
-                    writer = csv.DictWriter(f, fieldnames=['Handle', 'Variant SKU', 'Tags'])
-                    writer.writeheader()
-                    self.logger.info("All products now tagged after secondary AI")
-            
-            # Restore model
-            self.ollama_model = original_model
+                        writer = csv.DictWriter(f, fieldnames=['Handle', 'Variant SKU', 'Tags'])
+                        writer.writeheader()
+                        self.logger.info("All products now tagged after secondary AI")
         
         return output_file
 

@@ -27,17 +27,22 @@ class ProductTagger:
         # Access unified cache through ollama processor
         self.cache = ollama_processor.cache if ollama_processor and hasattr(ollama_processor, 'cache') else None
     
-    def _extract_nicotine_value(self, text: str) -> float:
+    def _extract_nicotine_value(self, text: str, category: str = None) -> float:
         """
         Extract nicotine value from text
         
         Args:
             text: Text to search
+            category: Product category (CBD products have 0mg by default)
         
         Returns:
             float: Nicotine value in mg or 0 if not found
         """
         if not text:
+            return 0.0
+        
+        # CBD products are always 0mg nicotine
+        if category == "CBD":
             return 0.0
         
         text = text.lower()
@@ -57,7 +62,12 @@ class ProductTagger:
             match = re.search(pattern, text)
             if match:
                 try:
-                    return float(match.group(1))
+                    value = float(match.group(1))
+                    # Validate max 20mg for nicotine
+                    if value > 20:
+                        self.logger.warning(f"Illegal nicotine value {value}mg detected (max 20mg)")
+                        return 0.0
+                    return value
                 except ValueError:
                     continue
         
@@ -106,6 +116,140 @@ class ProductTagger:
                     return True
 
         return False
+    
+    def _extract_cbd_value(self, text: str) -> float:
+        """
+        Extract CBD strength value from text
+        
+        Args:
+            text: Text to search
+        
+        Returns:
+            float: CBD value in mg or 0 if not found
+        """
+        if not text:
+            return 0.0
+        
+        text = text.lower()
+        
+        # Pattern to find CBD values like "1000mg", "5000mg", etc.
+        patterns = [
+            r'(\d+\.?\d*)\s*mg\s*cbd',
+            r'cbd\s*(\d+\.?\d*)\s*mg',
+            r'(\d+\.?\d*)mg',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    value = float(match.group(1))
+                    # Validate max 50000mg for CBD
+                    if value > 50000:
+                        self.logger.warning(f"CBD value {value}mg exceeds max 50000mg")
+                        return 0.0
+                    return value
+                except ValueError:
+                    continue
+        
+        return 0.0
+    
+    def _extract_vg_ratio(self, text: str) -> str:
+        """
+        Extract VG/PG ratio from text
+        
+        Args:
+            text: Text to search
+        
+        Returns:
+            str: VG/PG ratio in format "70/30" or empty string if not found
+        """
+        if not text:
+            return ""
+        
+        text = text.lower()
+        
+        # Pattern to find ratios like "70/30", "70VG/30PG", "70vg 30pg", etc.
+        patterns = [
+            r'(\d+)\s*vg\s*/\s*(\d+)\s*pg',
+            r'(\d+)\s*/\s*(\d+)',
+            r'(\d+)\s*vg\s*(\d+)\s*pg',
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, text)
+            if match:
+                try:
+                    vg = int(match.group(1))
+                    pg = int(match.group(2))
+                    
+                    # VG is usually the larger number
+                    if vg < pg:
+                        vg, pg = pg, vg
+                    
+                    # Validate they sum to 100
+                    if vg + pg == 100:
+                        return f"{vg}/{pg}"
+                except (ValueError, IndexError):
+                    continue
+        
+        return ""
+    
+    def _extract_secondary_flavors(self, text: str, primary_flavor_types: List[str]) -> List[str]:
+        """
+        Extract secondary flavor keywords opportunistically
+        
+        Args:
+            text: Text to search
+            primary_flavor_types: Already detected primary flavor types
+        
+        Returns:
+            List[str]: Secondary flavor keywords found
+        """
+        if not text:
+            return []
+        
+        text = text.lower()
+        secondary_flavors = []
+        
+        # For each detected primary flavor type, check for secondary keywords
+        for flavor_type in primary_flavor_types:
+            secondary_keywords = self.taxonomy.get_flavor_secondary_keywords(flavor_type)
+            for keyword in secondary_keywords:
+                if self._match_keywords(text, [keyword]):
+                    secondary_flavors.append(keyword)
+        
+        return list(set(secondary_flavors))  # Remove duplicates
+    
+    def tag_category(self, product_data: Dict) -> str:
+        """
+        Detect product category from approved_tags.json categories
+        
+        Args:
+            product_data: Product information dictionary
+        
+        Returns:
+            str: Primary category tag (or CBD for CBD products)
+        """
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        # Check each category in priority order (CBD first, then others)
+        # CBD products can have dual category (CBD + one other)
+        detected_categories = []
+        
+        for category, keywords in self.taxonomy.CATEGORY_KEYWORDS.items():
+            if self._match_keywords(text, keywords):
+                detected_categories.append(category)
+        
+        # If CBD detected, return it (dual categories handled elsewhere)
+        if "CBD" in detected_categories:
+            return "CBD"
+        
+        # Return first detected category
+        if detected_categories:
+            return detected_categories[0]
+        
+        return ""
     
     def tag_device_type(self, product_data: Dict) -> List[str]:
         """

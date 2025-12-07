@@ -390,22 +390,43 @@ class TagAuditor:
         print(f"\n💡 RECOMMENDATIONS")
         recommendations = []
 
-        ai_pct = contribution['products_with_ai_tags'] / contribution['total_products'] * 100
-        if ai_pct < 50:
-            recommendations.append("Consider increasing AI tagging coverage")
-        elif ai_pct > 90:
-            recommendations.append("AI tagging coverage is excellent")
+        ai_pct = (contribution['products_with_ai_tags'] / contribution['total_products']) * 100
+        if contribution['products_with_ai_tags'] == 0:
+            recommendations.append("AI tags never made it into the audit; verify model configuration and rerun tagging")
+        elif ai_pct < 30:
+            recommendations.append(f"Increase AI tagging coverage (currently {ai_pct:.1f}% of products contain AI tags)")
+        elif ai_pct > 85:
+            recommendations.append("AI tagging coverage is strong—focus on accuracy next")
 
-        agreement_pct = ai_perf['ai_vs_rule_agreement']['agree'] / total_agreements * 100
-        if agreement_pct < 60:
-            recommendations.append("Review AI-rule disagreement patterns")
+        if total_agreements == 0:
+            recommendations.append("No AI vs rule comparisons available; ensure both taggers run for the same batch")
         else:
-            recommendations.append("Good agreement between AI and rule-based tagging")
+            agreement_pct = (ai_perf['ai_vs_rule_agreement']['agree'] / total_agreements) * 100
+            if agreement_pct < 60:
+                recommendations.append(f"Review AI-rule disagreement patterns (agreement only {agreement_pct:.1f}%)")
+            else:
+                recommendations.append("AI and rule-based tagging generally agree")
 
-        if total_issues > 10:
-            recommendations.append(f"Address {total_issues} accuracy issues identified")
-        else:
-            recommendations.append("Accuracy issues are minimal")
+        missing_expected = accuracy_issues['missing_expected_tags']
+        inconsistent_groups = accuracy_issues['inconsistent_similar_products']
+
+        if missing_expected:
+            top_missing = missing_expected[0]
+            recommendations.append(
+                f"Backfill required tags such as {top_missing['expected']} (example: {top_missing['product']})"
+            )
+
+        if inconsistent_groups:
+            top_group = inconsistent_groups[0]
+            recommendations.append(
+                f"Normalize tagging for similar products (e.g., group '{top_group['group']}')"
+            )
+
+        if not missing_expected and not inconsistent_groups:
+            if total_issues > 0:
+                recommendations.append(f"Address the remaining {total_issues} accuracy issues")
+            else:
+                recommendations.append("No blocking accuracy issues detected")
 
         for rec in recommendations:
             print(f"   - {rec}")

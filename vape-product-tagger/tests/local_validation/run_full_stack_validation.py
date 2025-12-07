@@ -88,7 +88,7 @@ def validate_tagger(temp_dir: Path) -> Dict[str, Path]:
 
 def validate_ai_review(audit_db: Path) -> Dict[str, int]:
     """Mock the AI reviewer to ensure the workflow updates records."""
-    from tag_audit_db import TagAuditDB
+    from scripts.tag_audit_db import TagAuditDB
 
     db = TagAuditDB(db_path=str(audit_db))
 
