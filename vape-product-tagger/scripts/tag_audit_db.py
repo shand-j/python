@@ -107,6 +107,16 @@ class TagAuditDB:
             ('ai_review_decision', 'TEXT'),
             ('ai_review_confidence', 'REAL'),
             ('ai_review_reasoning', 'TEXT'),
+            # New columns for refactored pipeline
+            ('needs_manual_review', 'INTEGER DEFAULT 0'),
+            ('primary_model_confidence', 'REAL'),
+            ('secondary_model_confidence', 'REAL'),
+            ('tertiary_model_confidence', 'REAL'),
+            ('model_used', 'TEXT'),
+            ('failure_reasons', 'TEXT'),  # JSON array
+            ('rule_based_tags', 'TEXT'),  # JSON array
+            ('ai_suggested_tags', 'TEXT'),  # JSON array
+            ('secondary_flavor_tags', 'TEXT'),  # JSON array
         ]
         
         for col_name, col_type in new_columns:
@@ -928,6 +938,109 @@ Rules:
             conn.commit()
         
         print("✅ Audit database cleared.")
+    
+    def save_product_tagging(self, run_id, enhanced_product):
+        """
+        Save product tagging results from refactored pipeline
+        
+        Args:
+            run_id: Run identifier
+            enhanced_product: Enhanced product dict from ProductTagger.tag_product()
+                Expected keys: handle, title, description, category, tags, needs_manual_review,
+                confidence_scores, model_used, tag_breakdown, failure_reasons, ai_reasoning
+        """
+        conn = self._get_connection()
+        cur = conn.cursor()
+        
+        # Extract data from enhanced product
+        handle = enhanced_product.get('handle', '')
+        title = enhanced_product.get('title', '')
+        description = enhanced_product.get('description', '')
+        category = enhanced_product.get('category', '')
+        
+        # Tags
+        final_tags = enhanced_product.get('tags', [])
+        tag_breakdown = enhanced_product.get('tag_breakdown', {})
+        rule_based_tags = tag_breakdown.get('rule_based_tags', [])
+        ai_suggested_tags = tag_breakdown.get('ai_suggested_tags', [])
+        secondary_flavor_tags = tag_breakdown.get('secondary_flavors', [])
+        
+        # Metadata
+        needs_manual_review = 1 if enhanced_product.get('needs_manual_review', False) else 0
+        model_used = enhanced_product.get('model_used', '')
+        failure_reasons = enhanced_product.get('failure_reasons', [])
+        ai_reasoning = enhanced_product.get('ai_reasoning', '')
+        
+        # Confidence scores
+        confidence_scores = enhanced_product.get('confidence_scores', {})
+        ai_confidence = confidence_scores.get('ai_confidence', 0.0)
+        
+        # Legacy fields for compatibility
+        csv_type = enhanced_product.get('type', '')
+        effective_type = category
+        forced_category = None
+        device_evidence = 1 if category in ['device', 'pod_system'] else 0
+        skipped = 0
+        skip_reason = None
+        
+        data = (
+            run_id,
+            handle,
+            title,
+            csv_type,
+            effective_type,
+            description,
+            json.dumps(rule_based_tags),  # rule_tags
+            json.dumps(ai_suggested_tags),  # ai_tags
+            json.dumps(final_tags),  # final_tags
+            forced_category,
+            device_evidence,
+            skipped,
+            skip_reason,
+            datetime.now().isoformat(),  # processed_at
+            None,  # ai_prompt (legacy)
+            None,  # ai_model_output (legacy)
+            ai_confidence,
+            ai_reasoning,
+            category,  # detected_category
+            needs_manual_review,
+            ai_confidence,  # primary_model_confidence (same as ai_confidence for now)
+            None,  # secondary_model_confidence
+            None,  # tertiary_model_confidence
+            model_used,
+            json.dumps(failure_reasons),
+            json.dumps(rule_based_tags),  # rule_based_tags (new column)
+            json.dumps(ai_suggested_tags),  # ai_suggested_tags (new column)
+            json.dumps(secondary_flavor_tags)  # secondary_flavor_tags
+        )
+        
+        if self.thread_safe:
+            with self._lock:
+                cur.execute('''
+                    INSERT INTO products (
+                        run_id, handle, title, csv_type, effective_type, description,
+                        rule_tags, ai_tags, final_tags, forced_category, device_evidence,
+                        skipped, skip_reason, processed_at, ai_prompt, ai_model_output,
+                        ai_confidence, ai_reasoning, detected_category,
+                        needs_manual_review, primary_model_confidence, secondary_model_confidence,
+                        tertiary_model_confidence, model_used, failure_reasons,
+                        rule_based_tags, ai_suggested_tags, secondary_flavor_tags
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', data)
+                conn.commit()
+        else:
+            cur.execute('''
+                INSERT INTO products (
+                    run_id, handle, title, csv_type, effective_type, description,
+                    rule_tags, ai_tags, final_tags, forced_category, device_evidence,
+                    skipped, skip_reason, processed_at, ai_prompt, ai_model_output,
+                    ai_confidence, ai_reasoning, detected_category,
+                    needs_manual_review, primary_model_confidence, secondary_model_confidence,
+                    tertiary_model_confidence, model_used, failure_reasons,
+                    rule_based_tags, ai_suggested_tags, secondary_flavor_tags
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', data)
+            conn.commit()
 
     def close(self):
         try:

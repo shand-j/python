@@ -147,7 +147,8 @@ class ShopifyHandler:
     
     def export_to_csv(self, products: List[Dict], output_path: str = None) -> str:
         """
-        Export tagged products to Shopify CSV format
+        Export tagged products to Shopify CSV format (legacy single-file export)
+        For 3-tier export (clean/review/untagged), use export_to_csv_three_tier()
         
         Args:
             products: List of tagged product dictionaries
@@ -165,14 +166,29 @@ class ShopifyHandler:
         
         self.logger.info(f"Exporting {len(products)} products to CSV: {output_path}")
         
+        # Add metadata columns to headers
+        extended_headers = self.SHOPIFY_HEADERS + [
+            'Needs Manual Review', 'AI Confidence', 'Model Used', 
+            'Failure Reasons', 'Secondary Flavors', 'Category'
+        ]
+        
         with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=self.SHOPIFY_HEADERS)
+            writer = csv.DictWriter(csvfile, fieldnames=extended_headers)
             writer.writeheader()
             
             for product in products:
                 handle = product.get('handle') or self._generate_handle(product.get('title', 'product'))
                 tags = self._format_tags(product.get('tags', []))
                 images = product.get('images', [])
+                
+                # Metadata
+                needs_review = 'YES' if product.get('needs_manual_review', False) else 'NO'
+                ai_confidence = product.get('confidence_scores', {}).get('ai_confidence', 0.0)
+                model_used = product.get('model_used', '')
+                failure_reasons = '; '.join(product.get('failure_reasons', []))
+                tag_breakdown = product.get('tag_breakdown', {})
+                secondary_flavors = ', '.join(tag_breakdown.get('secondary_flavors', []))
+                category = product.get('category', '')
                 
                 # First row with all product data
                 first_row = {
@@ -194,7 +210,13 @@ class ShopifyHandler:
                     'Variant Taxable': 'TRUE',
                     'SEO Title': product.get('title', ''),
                     'SEO Description': product.get('title', ''),
-                    'Status': 'active'
+                    'Status': 'active',
+                    'Needs Manual Review': needs_review,
+                    'AI Confidence': f"{ai_confidence:.2f}" if ai_confidence else '',
+                    'Model Used': model_used,
+                    'Failure Reasons': failure_reasons,
+                    'Secondary Flavors': secondary_flavors,
+                    'Category': category
                 }
                 
                 # Add first image
@@ -217,6 +239,153 @@ class ShopifyHandler:
         
         self.logger.info(f"CSV export completed: {output_path}")
         return str(output_path)
+    
+    def export_to_csv_three_tier(self, products: List[Dict], output_dir: str = None) -> Dict[str, str]:
+        """
+        Export products to 3 separate CSV files based on tagging status:
+        1. {timestamp}_tagged_clean.csv - Successfully tagged, no manual review needed
+        2. {timestamp}_tagged_review.csv - Tagged but needs manual review
+        3. {timestamp}_untagged.csv - No tags generated or failed validation
+        
+        Args:
+            products: List of tagged product dictionaries
+            output_dir: Optional output directory
+        
+        Returns:
+            Dict[str, str]: Paths to the 3 created CSV files
+        """
+        if output_dir is None:
+            output_dir = self.config.output_dir
+        
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        
+        # Separate products into 3 categories
+        clean_products = []
+        review_products = []
+        untagged_products = []
+        
+        for product in products:
+            tags = product.get('tags', [])
+            needs_review = product.get('needs_manual_review', False)
+            
+            if not tags:
+                untagged_products.append(product)
+            elif needs_review:
+                review_products.append(product)
+            else:
+                clean_products.append(product)
+        
+        self.logger.info(f"Separating products: {len(clean_products)} clean, {len(review_products)} review, {len(untagged_products)} untagged")
+        
+        # Export each category
+        output_paths = {}
+        
+        if clean_products:
+            clean_path = output_dir / f'{timestamp}_tagged_clean.csv'
+            self._export_products_with_metadata(clean_products, clean_path)
+            output_paths['clean'] = str(clean_path)
+            self.logger.info(f"✅ Clean products exported: {clean_path}")
+        
+        if review_products:
+            review_path = output_dir / f'{timestamp}_tagged_review.csv'
+            self._export_products_with_metadata(review_products, review_path)
+            output_paths['review'] = str(review_path)
+            self.logger.info(f"⚠️  Review products exported: {review_path}")
+        
+        if untagged_products:
+            untagged_path = output_dir / f'{timestamp}_untagged.csv'
+            self._export_products_with_metadata(untagged_products, untagged_path)
+            output_paths['untagged'] = str(untagged_path)
+            self.logger.info(f"❌ Untagged products exported: {untagged_path}")
+        
+        return output_paths
+    
+    def _export_products_with_metadata(self, products: List[Dict], output_path: Path):
+        """
+        Helper to export products with full metadata columns
+        
+        Args:
+            products: List of product dictionaries
+            output_path: Output file path
+        """
+        # Extended headers with metadata
+        extended_headers = self.SHOPIFY_HEADERS + [
+            'Needs Manual Review', 'AI Confidence', 'Model Used', 
+            'Failure Reasons', 'Secondary Flavors', 'Category',
+            'Rule Based Tags', 'AI Suggested Tags'
+        ]
+        
+        with open(output_path, 'w', newline='', encoding='utf-8') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=extended_headers)
+            writer.writeheader()
+            
+            for product in products:
+                handle = product.get('handle') or self._generate_handle(product.get('title', 'product'))
+                tags = self._format_tags(product.get('tags', []))
+                images = product.get('images', [])
+                
+                # Metadata
+                needs_review = 'YES' if product.get('needs_manual_review', False) else 'NO'
+                ai_confidence = product.get('confidence_scores', {}).get('ai_confidence', 0.0)
+                model_used = product.get('model_used', '')
+                failure_reasons = '; '.join(product.get('failure_reasons', []))
+                tag_breakdown = product.get('tag_breakdown', {})
+                secondary_flavors = ', '.join(tag_breakdown.get('secondary_flavors', []))
+                rule_based_tags = ', '.join(tag_breakdown.get('rule_based_tags', []))
+                ai_suggested_tags = ', '.join(tag_breakdown.get('ai_suggested_tags', []))
+                category = product.get('category', '')
+                
+                # First row with all product data
+                first_row = {
+                    'Handle': handle,
+                    'Title': product.get('title', ''),
+                    'Body (HTML)': self._clean_html(product.get('description', '')),
+                    'Vendor': product.get('vendor', self.config.shopify_vendor),
+                    'Product Category': product.get('product_category', ''),
+                    'Type': product.get('type', self.config.shopify_product_type),
+                    'Tags': tags,
+                    'Published': 'TRUE' if self.config.auto_publish else 'FALSE',
+                    'Variant SKU': product.get('sku', ''),
+                    'Variant Inventory Tracker': 'shopify',
+                    'Variant Inventory Qty': product.get('inventory_qty', '0'),
+                    'Variant Inventory Policy': 'deny',
+                    'Variant Fulfillment Service': 'manual',
+                    'Variant Price': product.get('price', ''),
+                    'Variant Requires Shipping': 'TRUE',
+                    'Variant Taxable': 'TRUE',
+                    'SEO Title': product.get('title', ''),
+                    'SEO Description': product.get('title', ''),
+                    'Status': 'active',
+                    'Needs Manual Review': needs_review,
+                    'AI Confidence': f"{ai_confidence:.2f}" if ai_confidence else '',
+                    'Model Used': model_used,
+                    'Failure Reasons': failure_reasons,
+                    'Secondary Flavors': secondary_flavors,
+                    'Category': category,
+                    'Rule Based Tags': rule_based_tags,
+                    'AI Suggested Tags': ai_suggested_tags
+                }
+                
+                # Add first image
+                if images:
+                    first_row['Image Src'] = images[0]
+                    first_row['Image Position'] = '1'
+                    first_row['Image Alt Text'] = product.get('title', '')
+                
+                writer.writerow(first_row)
+                
+                # Additional rows for additional images
+                for idx, image in enumerate(images[1:], start=2):
+                    image_row = {
+                        'Handle': handle,
+                        'Image Src': image,
+                        'Image Position': str(idx),
+                        'Image Alt Text': product.get('title', '')
+                    }
+                    writer.writerow(image_row)
     
     def export_to_json(self, products: List[Dict], output_path: str = None) -> str:
         """
