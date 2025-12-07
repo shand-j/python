@@ -3,8 +3,11 @@ Product Tagging Engine Module
 Core logic for intelligent vaping product tagging
 """
 import re
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Tuple, Optional
 from .taxonomy import VapeTaxonomy
+from .ai_cascade import AICascade
+from .tag_validator import TagValidator
+from .third_opinion import ThirdOpinionRecovery
 
 
 class ProductTagger:
@@ -26,6 +29,13 @@ class ProductTagger:
         
         # Access unified cache through ollama processor
         self.cache = ollama_processor.cache if ollama_processor and hasattr(ollama_processor, 'cache') else None
+        
+        # Initialize new components
+        from pathlib import Path
+        schema_path = Path(__file__).parent.parent / "approved_tags.json"
+        self.tag_validator = TagValidator(schema_path, logger)
+        self.ai_cascade = AICascade(config, logger, ollama_processor) if ollama_processor else None
+        self.third_opinion = ThirdOpinionRecovery(config, logger)
     
     def _extract_nicotine_value(self, text: str, category: str = None) -> float:
         """
@@ -251,131 +261,333 @@ class ProductTagger:
         
         return ""
     
-    def tag_device_type(self, product_data: Dict) -> List[str]:
+    def tag_device_style(self, product_data: Dict, category: str = None) -> List[str]:
         """
-        Tag device type based on product data
+        Tag device style (applies_to: device, pod_system)
         
         Args:
             product_data: Product information dictionary
+            category: Product category (for validation)
         
         Returns:
-            List[str]: Device type tags
+            List[str]: Device style tags
         """
-        tags = set()
-        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
-        
-        # Check each device type
-        for device_type, data in self.taxonomy.DEVICE_TYPES.items():
-            if self._match_keywords(text, data['keywords']):
-                tags.update(data['tags'])
-        
-        return list(tags)
-    
-    def tag_device_form(self, product_data: Dict, device_type_tags: List[str] = None) -> List[str]:
-        """
-        Tag device form based on product data
-        
-        Args:
-            product_data: Product information dictionary
-        
-        Returns:
-            List[str]: Device form tags
-        """
-        tags = set()
-        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
-
-        # If caller provided device_type_tags, use it; otherwise compute. We only want
-        # device-form tags if there's evidence the product is a device/hardware.
-        if device_type_tags is None:
-            device_type_tags = self.tag_device_type(product_data)
-
-        # If no device-type evidence, check for some strong device cue keywords
-        device_cues = [
-            'battery', 'coil', 'pod', 'cartridge', 'kit', 'charger', 'prefilled',
-            'refill', 'atomizer', 'vape', 'device', 'mod'
-        ]
-
-        has_device_evidence = bool(device_type_tags) or self._match_keywords(text, device_cues)
-        if not has_device_evidence:
+        # Check applies_to rule
+        if category and category not in ["device", "pod_system"]:
             return []
         
-        # Check each device form
-        for form, data in self.taxonomy.DEVICE_FORMS.items():
-            if self._match_keywords(text, data['keywords']):
-                tags.update(data['tags'])
-        
-        return list(tags)
-    
-    def tag_flavors(self, product_data: Dict) -> Dict[str, List[str]]:
-        """
-        Tag flavors with family and sub-category hierarchy
-        
-        Args:
-            product_data: Product information dictionary
-        
-        Returns:
-            Dict[str, List[str]]: Flavor tags organized by family
-        """
-        flavor_tags = {}
+        tags = []
         text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
         
-        # Check each flavor family
-        for family, family_data in self.taxonomy.FLAVOR_TAXONOMY.items():
-            family_matches = []
-            
-            # Check main family keywords
-            if self._match_keywords(text, family_data['keywords']):
-                family_matches.extend(family_data['tags'])
-            
-            # Check sub-categories
-            sub_categories = family_data.get('sub_categories', {})
-            for sub_name, sub_data in sub_categories.items():
-                if self._match_keywords(text, sub_data['keywords']):
-                    family_matches.extend(sub_data['tags'])
-            
-            if family_matches:
-                flavor_tags[family] = list(set(family_matches))
+        for style, keywords in self.taxonomy.DEVICE_STYLE_KEYWORDS.items():
+            if self._match_keywords(text, keywords):
+                tags.append(style)
         
-        return flavor_tags
+        return list(set(tags))
     
-    def tag_nicotine(self, product_data: Dict) -> Dict[str, List[str]]:
+    def tag_capacity(self, product_data: Dict, category: str = None) -> List[str]:
         """
-        Tag nicotine strength and type
+        Tag capacity for tanks/pods (applies_to: tank, pod)
         
         Args:
             product_data: Product information dictionary
+            category: Product category (for validation)
         
         Returns:
-            Dict[str, List[str]]: Nicotine tags (strength and type)
+            List[str]: Capacity tags (e.g., ["2ml", "5ml"])
         """
-        nicotine_tags = {
-            'strength': [],
-            'type': []
-        }
+        # Check applies_to rule
+        if category and category not in ["tank", "pod"]:
+            return []
+        
+        tags = []
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        # Match capacity patterns
+        for capacity in self.taxonomy.CAPACITY_KEYWORDS:
+            if capacity in text:
+                tags.append(capacity)
+        
+        return list(set(tags))
+    
+    def tag_bottle_size(self, product_data: Dict, category: str = None) -> List[str]:
+        """
+        Tag bottle size for e-liquids (applies_to: e-liquid)
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            List[str]: Bottle size tags
+        """
+        # Check applies_to rule
+        if category and category != "e-liquid":
+            return []
+        
+        tags = []
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        for size, keywords in self.taxonomy.BOTTLE_SIZE_KEYWORDS.items():
+            if self._match_keywords(text, keywords):
+                tags.append(size)
+        
+        return list(set(tags))
+    
+    def tag_nicotine_strength(self, product_data: Dict, category: str = None) -> Optional[str]:
+        """
+        Tag nicotine strength (applies_to: e-liquid, disposable, device, pod_system, nicotine_pouches)
+        Returns at most ONE tag per product (range: 0-20mg)
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            Optional[str]: Nicotine strength tag (e.g., "3mg", "0mg") or None
+        """
+        # Check applies_to rule
+        if category and category not in ["e-liquid", "disposable", "device", "pod_system", "nicotine_pouches"]:
+            return None
         
         text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
         
         # Extract nicotine value
-        nic_value = self._extract_nicotine_value(text)
+        nic_value = self._extract_nicotine_value(text, category)
         
-        # Determine strength level
-        level, strength_tags = self.taxonomy.get_nicotine_strength_level(nic_value)
-        if strength_tags:
-            nicotine_tags['strength'] = strength_tags
+        # Convert to tag using taxonomy helper
+        tag = self.taxonomy.get_nicotine_strength_tag(nic_value)
         
-        # Determine nicotine type
-        for nic_type, type_data in self.taxonomy.NICOTINE_TYPES.items():
-            if self._match_keywords(text, type_data['keywords']):
-                nicotine_tags['type'].extend(type_data['tags'])
-        
-        return nicotine_tags
+        return tag
     
-    def tag_compliance(self, product_data: Dict) -> List[str]:
+    def tag_nicotine_type(self, product_data: Dict, category: str = None) -> List[str]:
         """
-        Generate compliance and age verification tags
+        Tag nicotine type (applies_to: e-liquid, disposable, device, pod_system, nicotine_pouches)
         
         Args:
             product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            List[str]: Nicotine type tags
+        """
+        # Check applies_to rule
+        if category and category not in ["e-liquid", "disposable", "device", "pod_system", "nicotine_pouches"]:
+            return []
+        
+        tags = []
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        for nic_type, keywords in self.taxonomy.NICOTINE_TYPE_KEYWORDS.items():
+            if self._match_keywords(text, keywords):
+                tags.append(nic_type)
+        
+        return list(set(tags))
+    
+    def tag_vg_ratio(self, product_data: Dict, category: str = None) -> Optional[str]:
+        """
+        Tag VG/PG ratio (applies_to: e-liquid)
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            Optional[str]: VG/PG ratio tag (e.g., "70/30") or None
+        """
+        # Check applies_to rule
+        if category and category != "e-liquid":
+            return None
+        
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        ratio = self._extract_vg_ratio(text)
+        return ratio if ratio else None
+    
+    def tag_cbd_strength(self, product_data: Dict, category: str = None) -> Optional[str]:
+        """
+        Tag CBD strength (applies_to: CBD)
+        Returns at most ONE tag per product (range: 0-50000mg)
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            Optional[str]: CBD strength tag (e.g., "1000mg") or None
+        """
+        # Check applies_to rule
+        if category and category != "CBD":
+            return None
+        
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        # Extract CBD value
+        cbd_value = self._extract_cbd_value(text)
+        
+        # Convert to tag using taxonomy helper
+        tag = self.taxonomy.get_cbd_strength_tag(cbd_value)
+        
+        return tag
+    
+    def tag_cbd_form(self, product_data: Dict, category: str = None) -> List[str]:
+        """
+        Tag CBD form (applies_to: CBD)
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            List[str]: CBD form tags
+        """
+        # Check applies_to rule
+        if category and category != "CBD":
+            return []
+        
+        tags = []
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        for form, keywords in self.taxonomy.CBD_FORM_KEYWORDS.items():
+            if self._match_keywords(text, keywords):
+                tags.append(form)
+        
+        return list(set(tags))
+    
+    def tag_cbd_type(self, product_data: Dict, category: str = None) -> List[str]:
+        """
+        Tag CBD type (applies_to: CBD)
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            List[str]: CBD type tags
+        """
+        # Check applies_to rule
+        if category and category != "CBD":
+            return []
+        
+        tags = []
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        for cbd_type, keywords in self.taxonomy.CBD_TYPE_KEYWORDS.items():
+            if self._match_keywords(text, keywords):
+                tags.append(cbd_type)
+        
+        return list(set(tags))
+    
+    def tag_power_supply(self, product_data: Dict, category: str = None) -> List[str]:
+        """
+        Tag power supply (applies_to: device, pod_system)
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            List[str]: Power supply tags
+        """
+        # Check applies_to rule
+        if category and category not in ["device", "pod_system"]:
+            return []
+        
+        tags = []
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        for supply_type, keywords in self.taxonomy.POWER_SUPPLY_KEYWORDS.items():
+            if self._match_keywords(text, keywords):
+                tags.append(supply_type)
+        
+        return list(set(tags))
+    
+    def tag_pod_type(self, product_data: Dict, category: str = None) -> List[str]:
+        """
+        Tag pod type (applies_to: pod)
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            List[str]: Pod type tags
+        """
+        # Check applies_to rule
+        if category and category != "pod":
+            return []
+        
+        tags = []
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        for pod_type, keywords in self.taxonomy.POD_TYPE_KEYWORDS.items():
+            if self._match_keywords(text, keywords):
+                tags.append(pod_type)
+        
+        return list(set(tags))
+    
+    def tag_vaping_style(self, product_data: Dict, category: str = None) -> List[str]:
+        """
+        Tag vaping style (applies_to: device, pod_system, e-liquid)
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            List[str]: Vaping style tags
+        """
+        # Check applies_to rule
+        if category and category not in ["device", "pod_system", "e-liquid"]:
+            return []
+        
+        tags = []
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        for style, keywords in self.taxonomy.VAPING_STYLE_KEYWORDS.items():
+            if self._match_keywords(text, keywords):
+                tags.append(style)
+        
+        return list(set(tags))
+    
+    def tag_flavors(self, product_data: Dict, category: str = None) -> Tuple[List[str], List[str]]:
+        """
+        Tag flavors (applies_to: e-liquid, disposable, nicotine_pouches, pod)
+        Returns both primary flavor types and secondary flavor keywords
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            Tuple[List[str], List[str]]: (primary_flavor_types, secondary_flavors)
+        """
+        # Check applies_to rule
+        if category and category not in ["e-liquid", "disposable", "nicotine_pouches", "pod"]:
+            return [], []
+        
+        primary_flavors = []
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        # Check each flavor type
+        for flavor_type, data in self.taxonomy.FLAVOR_KEYWORDS.items():
+            primary_keywords = data.get('primary_keywords', [])
+            if self._match_keywords(text, primary_keywords):
+                primary_flavors.append(flavor_type)
+        
+        # Extract secondary flavors opportunistically
+        secondary_flavors = self._extract_secondary_flavors(text, primary_flavors)
+        
+        return primary_flavors, secondary_flavors
+    
+    def tag_compliance(self, product_data: Dict, category: str = None) -> List[str]:
+        """
+        Generate compliance and age verification tags
+        Note: This method is kept for backwards compatibility but may be disabled via config
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category
         
         Returns:
             List[str]: Compliance tags
@@ -383,123 +595,187 @@ class ProductTagger:
         if not self.config.enable_compliance_tags:
             return []
         
-        tags = []
-        
-        # Age restriction (always apply for vaping products)
-        tags.extend(self.taxonomy.COMPLIANCE_TAGS['age_restriction'])
-        
-        # Regional compliance
-        for region in self.config.regional_compliance:
-            if region.upper() == 'US':
-                tags.append('US Compliant')
-            elif region.upper() == 'EU':
-                tags.extend(['EU Compliant', 'TPD Compliant'])
-        
-        # Nicotine warnings
-        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
-        nic_value = self._extract_nicotine_value(text)
-        if nic_value > 0:
-            tags.extend(self.taxonomy.COMPLIANCE_TAGS['nicotine_warnings'])
-        
-        # Shipping restrictions
-        tags.extend(self.taxonomy.COMPLIANCE_TAGS['shipping_restriction'])
-        
-        return list(set(tags))
+        # Compliance tags are not in approved_tags.json
+        # This is optional and can be disabled
+        return []
     
     def tag_product(self, product_data: Dict, use_ai: bool = True) -> Dict:
         """
-        Generate comprehensive tags for a product
+        Generate comprehensive tags for a product using new refactored pipeline
+        
+        Pipeline:
+        1. Detect category
+        2. Run all applicable rule-based tagging methods based on category
+        3. Invoke AI cascade if use_ai=True
+        4. Validate all tags via TagValidator
+        5. Attempt ThirdOpinionRecovery if validation fails
+        6. Return enhanced product with comprehensive metadata
         
         Args:
             product_data: Product information dictionary
             use_ai: Whether to use AI enhancement
         
         Returns:
-            Dict: Enhanced product data with tags
+            Dict: Enhanced product data with tags and metadata
         """
         self.logger.info(f"Tagging product: {product_data.get('title', 'Unknown')}")
         
-        # Rule-based tagging
-        device_type_tags = self.tag_device_type(product_data)
-        device_form_tags = self.tag_device_form(product_data, device_type_tags=device_type_tags)
-        flavor_tags = self.tag_flavors(product_data)
-        nicotine_tags = self.tag_nicotine(product_data)
-        compliance_tags = self.tag_compliance(product_data)
+        # Step 1: Detect category
+        category = self.tag_category(product_data)
+        self.logger.debug(f"Detected category: {category}")
         
-        # AI-powered enhancement (if enabled and available)
-        ai_tags = {}
-        if use_ai and self.ollama and self.config.enable_ai_tagging:
+        # Step 2: Run all applicable rule-based tagging methods
+        rule_tags = []
+        
+        # Device-related tags
+        if category in ["device", "pod_system"]:
+            rule_tags.extend(self.tag_device_style(product_data, category))
+            rule_tags.extend(self.tag_power_supply(product_data, category))
+            rule_tags.extend(self.tag_vaping_style(product_data, category))
+        
+        # Capacity tags
+        if category in ["tank", "pod"]:
+            rule_tags.extend(self.tag_capacity(product_data, category))
+        
+        # Pod-specific tags
+        if category == "pod":
+            rule_tags.extend(self.tag_pod_type(product_data, category))
+        
+        # E-liquid tags
+        if category == "e-liquid":
+            rule_tags.extend(self.tag_bottle_size(product_data, category))
+            vg_ratio = self.tag_vg_ratio(product_data, category)
+            if vg_ratio:
+                rule_tags.append(vg_ratio)
+            rule_tags.extend(self.tag_vaping_style(product_data, category))
+        
+        # Flavor tags (for applicable categories)
+        primary_flavors, secondary_flavors = self.tag_flavors(product_data, category)
+        rule_tags.extend(primary_flavors)
+        
+        # Nicotine tags (for applicable categories)
+        if category in ["e-liquid", "disposable", "device", "pod_system", "nicotine_pouches"]:
+            nic_strength = self.tag_nicotine_strength(product_data, category)
+            if nic_strength:
+                rule_tags.append(nic_strength)
+            rule_tags.extend(self.tag_nicotine_type(product_data, category))
+        
+        # CBD tags (for CBD products)
+        if category == "CBD":
+            cbd_strength = self.tag_cbd_strength(product_data, category)
+            if cbd_strength:
+                rule_tags.append(cbd_strength)
+            rule_tags.extend(self.tag_cbd_form(product_data, category))
+            rule_tags.extend(self.tag_cbd_type(product_data, category))
+        
+        # Compliance tags (optional)
+        compliance_tags = self.tag_compliance(product_data, category)
+        
+        # Remove duplicates from rule tags
+        rule_tags = list(set(rule_tags))
+        
+        self.logger.info(f"Rule-based tagging generated {len(rule_tags)} tags")
+        
+        # Step 3: AI-powered enhancement (if enabled and available)
+        ai_result = None
+        ai_tags = []
+        ai_confidence = 0.0
+        model_used = 'none'
+        ai_reasoning = ''
+        
+        if use_ai and self.ai_cascade and self.config.enable_ai_tagging:
             try:
-                ai_tags = self.ollama.generate_comprehensive_tags(product_data)
+                approved_schema = self.tag_validator.get_approved_schema()
+                ai_result = self.ai_cascade.generate_tags_with_cascade(
+                    product_data, 
+                    category,
+                    approved_schema
+                )
+                ai_tags = ai_result.get('tags', [])
+                ai_confidence = ai_result.get('confidence', 0.0)
+                model_used = ai_result.get('model_used', 'none')
+                ai_reasoning = ai_result.get('reasoning', '')
+                
+                self.logger.info(f"AI cascade generated {len(ai_tags)} tags with confidence {ai_confidence:.2f} using {model_used}")
             except Exception as e:
-                self.logger.warning(f"AI tagging failed: {e}")
+                self.logger.warning(f"AI cascade failed: {e}")
         
-        # Combine all tags
-        all_tags = []
-        all_tags.extend(device_type_tags)
-        all_tags.extend(device_form_tags)
+        # Step 4: Combine and validate all tags
+        all_tags = list(set(rule_tags + ai_tags))
         
-        # Flatten flavor tags
-        for family, tags in flavor_tags.items():
-            all_tags.extend(tags)
+        is_valid, failure_reasons = self.tag_validator.validate_all_tags(all_tags, category)
         
-        # Add nicotine tags
-        all_tags.extend(nicotine_tags.get('strength', []))
-        all_tags.extend(nicotine_tags.get('type', []))
+        needs_manual_review = False
+        final_tags = all_tags
         
-        # Add compliance tags
-        all_tags.extend(compliance_tags)
-        
-        # Merge AI tags
-        if ai_tags:
-            all_tags.extend(ai_tags.get('flavor_tags', []))
-            all_tags.extend(ai_tags.get('device_tags', []))
+        # Step 5: Attempt third opinion recovery if validation failed
+        if not is_valid:
+            self.logger.warning(f"Validation failed with {len(failure_reasons)} reasons, attempting recovery")
+            
+            recovery_result = self.third_opinion.attempt_recovery(
+                product_data,
+                ai_tags,
+                rule_tags,
+                failure_reasons,
+                self.tag_validator.get_approved_schema(),
+                category
+            )
+            
+            if recovery_result:
+                recovered_tags = recovery_result.get('tags', [])
+                # Re-validate recovered tags
+                recovered_valid, recovered_failures = self.tag_validator.validate_all_tags(recovered_tags, category)
+                
+                if recovered_valid:
+                    self.logger.info("Third opinion recovery succeeded!")
+                    final_tags = recovered_tags
+                    needs_manual_review = True  # Recovery always requires review
+                    failure_reasons = []
+                    ai_confidence = recovery_result.get('confidence', 0.0)
+                    model_used = f"{model_used}+recovery"
+                else:
+                    self.logger.warning("Third opinion recovery also failed validation")
+                    needs_manual_review = True
+                    # Keep combined tags but flag for review
+            else:
+                self.logger.error("Third opinion recovery returned no result")
+                needs_manual_review = True
+        else:
+            # Check if AI flagged for manual review
+            if ai_result and ai_result.get('needs_manual_review', False):
+                needs_manual_review = True
         
         # Remove duplicates while preserving order
         unique_tags = []
         seen = set()
-        for tag in all_tags:
+        for tag in final_tags:
             if tag not in seen:
                 unique_tags.append(tag)
                 seen.add(tag)
         
-        # Prepare enhanced product data
+        # Step 6: Prepare enhanced product data
         enhanced_product = product_data.copy()
         enhanced_product['tags'] = unique_tags
-        enhanced_product['tag_breakdown'] = {
-            'device_type': device_type_tags,
-            'device_form': device_form_tags,
-            'flavors': flavor_tags,
-            'nicotine_strength': nicotine_tags.get('strength', []),
-            'nicotine_type': nicotine_tags.get('type', []),
-            'compliance': compliance_tags,
-            'ai_enhanced': ai_tags
+        enhanced_product['category'] = category
+        enhanced_product['needs_manual_review'] = needs_manual_review
+        enhanced_product['confidence_scores'] = {
+            'ai_confidence': ai_confidence,
         }
+        enhanced_product['model_used'] = model_used
+        enhanced_product['tag_breakdown'] = {
+            'rule_based_tags': rule_tags,
+            'ai_suggested_tags': ai_tags,
+            'secondary_flavors': secondary_flavors,
+            'final_tags': unique_tags,
+        }
+        enhanced_product['failure_reasons'] = failure_reasons if failure_reasons else []
+        enhanced_product['ai_reasoning'] = ai_reasoning
         
-        self.logger.info(f"Generated {len(unique_tags)} tags for product")
+        self.logger.info(f"Final tagging: {len(unique_tags)} tags, needs_review={needs_manual_review}")
         
-        # Save final tags to unified cache if available
+        # Save to cache if available
         if self.cache and use_ai:
-            # Separate AI and rule-based tags for cache storage
-            rule_tags = []
-            rule_tags.extend(device_type_tags)
-            rule_tags.extend(device_form_tags)
-            for family, tags in flavor_tags.items():
-                rule_tags.extend(tags)
-            rule_tags.extend(nicotine_tags.get('strength', []))
-            rule_tags.extend(nicotine_tags.get('type', []))
-            rule_tags.extend(compliance_tags)
-            
-            ai_tag_list = []
-            if ai_tags:
-                ai_tag_list.extend(ai_tags.get('flavor_tags', []))
-                ai_tag_list.extend(ai_tags.get('device_tags', []))
-                ai_tag_list.extend(ai_tags.get('category_tags', []))
-                ai_tag_list.extend(ai_tags.get('compatibility_tags', []))
-                ai_tag_list.extend(ai_tags.get('cross_compatibility_tags', []))
-            
-            # Save to unified cache
-            self.cache.save_tags(product_data, ai_tag_list, rule_tags)
+            self.cache.save_tags(product_data, ai_tags, rule_tags)
         
         return enhanced_product
     
