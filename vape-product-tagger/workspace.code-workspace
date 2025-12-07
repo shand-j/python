@@ -2,6 +2,9 @@
 	"folders": [
 		{
 			"uri": "vscode-remote://ssh-remote+vastai/workspace"
+		},
+		{
+			"uri": "vscode-remote://ssh-remote+vastai/"
 		}
 	],
 	"remoteAuthority": "ssh-remote+vastai",
