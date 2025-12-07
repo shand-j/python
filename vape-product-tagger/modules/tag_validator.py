@@ -119,15 +119,14 @@ class TagValidator:
                     min_val = config['range']['min']
                     max_val = config['range']['max']
                     
-                    if min_val <= value <= max_val:
-                        # Check applies_to
-                        applies_to = config.get('applies_to', [])
-                        if not applies_to or category in applies_to:
+                    # Check if this range dimension applies to the category
+                    applies_to = config.get('applies_to', [])
+                    if not applies_to or category in applies_to:
+                        # This dimension applies - validate range
+                        if min_val <= value <= max_val:
                             return True, None
                         else:
-                            return False, f"Tag '{tag}' does not apply to category '{category}'"
-                    else:
-                        return False, f"Tag '{tag}' value {value} outside range [{min_val}, {max_val}]"
+                            return False, f"Tag '{tag}' value {value} outside range [{min_val}, {max_val}] for dimension '{dimension}'"
             
             # For enumerated tags
             if 'tags' in config:
