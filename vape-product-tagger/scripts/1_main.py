@@ -834,9 +834,15 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         elif not ratio_matches and 'vg' in text and 'pg' not in text:
             rule_tags.append('100/0')
         
-        # Shortfill detection
+        # Shortfill detection - must have explicit "shortfill" mention AND be 50-100ml
+        # Shortfills are larger bottles (60ml, 120ml) filled with 50ml/100ml to allow room for nic shots
         if 'shortfill' in text:
-            rule_tags.append('shortfill')
+            # Verify it's actually a shortfill bottle size (50ml, 100ml common)
+            # Don't apply to nic shots (10ml) even if they mention "for shortfills"
+            bottle_sizes = re.findall(r'(\d+)\s*ml', text, re.IGNORECASE)
+            is_shortfill_size = any(int(size) >= 50 for size in bottle_sizes if size.isdigit())
+            if is_shortfill_size or not bottle_sizes:  # Apply if 50ml+ or size unclear
+                rule_tags.append('shortfill')
         
         # Basic product type
         if any(word in text for word in ['disposable', 'puff']):
@@ -977,8 +983,8 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         if forced_category:
             preliminary_category = forced_category
         
-        # OPTIMIZATION: Skip AI for high-confidence rule matches
-        # Skip AI if we have: category + at least 2 other tags from rules
+        # AI-FIRST WORKFLOW: Always call AI unless explicitly disabled
+        # AI provides semantic understanding, rules supplement with precise extraction
         ai_tags = []
         ai_metadata = {
             'prompt': None,
@@ -988,19 +994,11 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             'skipped_ai': False
         }
         
-        non_category_rule_tags = [t for t in rule_tags if t not in self.category_tags]
-        skip_ai = (
-            preliminary_category is not None and 
-            len(non_category_rule_tags) >= 2 and
-            not self.no_ai
-        )
-        
-        if skip_ai:
-            # High-confidence rule match - skip expensive AI call
+        if self.no_ai:
+            # AI explicitly disabled - use rule-based only
             ai_metadata['skipped_ai'] = True
-            ai_metadata['confidence'] = 0.85  # Synthetic confidence for rule-only
-            ai_metadata['reasoning'] = f"Skipped AI: Strong rule match ({len(rule_tags)} tags including category)"
-            self.logger.debug(f"Skipping AI for {handle}: {rule_tags}")
+            ai_metadata['confidence'] = 0.0
+            ai_metadata['reasoning'] = "AI tagging disabled via --no-ai flag"
             # Track skip count (thread-safe)
             if self._lock:
                 with self._lock:
@@ -1008,7 +1006,8 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             else:
                 self._ai_skipped_count += 1
         else:
-            # Get AI suggestions with category-aware prompting
+            # AI-FIRST: Get AI suggestions with category-aware prompting
+            # AI provides semantic tagging, rules will supplement with precise values
             ai_tags, ai_metadata = self.get_ai_tags(product_dict, category=preliminary_category)
         
         # Combine and deduplicate
@@ -1058,8 +1057,10 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
                     if cbd_config.get('range') and product_category == 'CBD':
                         cat = 'cbd_strength'
             
+            # Skip category tags from all_tags - category will be added separately
             if cat == 'category':
                 continue
+            
             cat_data = self.approved_tags.get(cat, {})
             applies_to = cat_data.get('applies_to', ['all']) if isinstance(cat_data, dict) else ['all']
             if 'all' in applies_to or product_category in applies_to:
@@ -1072,7 +1073,14 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             else:
                 tag_by_cat[cat].sort(key=len, reverse=True)
         
+        # Build final tags list: [category, ...other tags]
         final_tags = []
+        
+        # Add category first (required)
+        if product_category:
+            final_tags.append(product_category)
+        
+        # Add one tag per category (limit enforced)
         for cat, tags in tag_by_cat.items():
             final_tags.extend(tags[:1])  # Keep at most one per category
         
