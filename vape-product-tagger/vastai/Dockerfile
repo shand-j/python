@@ -1,7 +1,7 @@
 # Vast.ai Pipeline Template for Vape Product Tagger
 # Includes Ollama for AI cascade tagging and QLoRA training support
 #
-# Build: docker build -t vape-tagger-pipeline .
+# Build: docker build -f vastai/Dockerfile -t shandj/vape-tagger:latest .
 # Supports: Tagging pipeline + Training (24GB+ VRAM recommended)
 
 FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-devel
@@ -32,18 +32,21 @@ RUN curl -fsSL https://ollama.ai/install.sh | sh
 # Create workspace
 WORKDIR /workspace
 
-# Install Python dependencies for pipeline
-COPY requirements-train.txt /tmp/requirements-train.txt
+# Copy and install Python dependencies
+COPY requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r /tmp/requirements-train.txt
+    pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Install additional pipeline dependencies
+# Install training dependencies (for QLoRA fine-tuning)
 RUN pip install --no-cache-dir \
-    pandas>=2.2.0 \
-    requests>=2.31.0 \
-    python-dotenv>=1.0.0 \
-    colorlog>=6.8.0 \
-    ollama>=0.2.0
+    torch>=2.1.0 \
+    transformers>=4.36.0 \
+    peft>=0.7.0 \
+    trl>=0.7.0 \
+    bitsandbytes>=0.41.0 \
+    accelerate>=0.25.0 \
+    datasets>=2.15.0 \
+    scikit-learn>=1.3.0
 
 # Install flash-attention (optional, improves training speed)
 RUN pip install --no-cache-dir flash-attn --no-build-isolation || \
@@ -58,17 +61,27 @@ RUN mkdir -p \
     /workspace/logs \
     /workspace/cache
 
-# Pre-pull Ollama models (optional - can be done at runtime)
-# Uncomment to pre-load models (increases image size but faster startup)
-# RUN ollama serve & \
-#     sleep 5 && \
-#     ollama pull mistral:latest && \
-#     ollama pull gpt-oss:latest && \
-#     ollama pull llama3.1:latest && \
-#     pkill ollama
+# Pre-pull Ollama models (ENABLED - saves 15+ min on startup)
+# This increases image size by ~15GB but reduces instance startup from 20min to 1min
+RUN ollama serve & \
+    OLLAMA_PID=$! && \
+    sleep 10 && \
+    echo "Pulling mistral:latest..." && \
+    ollama pull mistral:latest && \
+    echo "Pulling gpt-oss:latest..." && \
+    ollama pull gpt-oss:latest && \
+    echo "Pulling llama3.1:latest..." && \
+    ollama pull llama3.1:latest && \
+    echo "Models cached successfully" && \
+    kill $OLLAMA_PID && \
+    wait $OLLAMA_PID 2>/dev/null || true
+
+# Copy project files (done after deps so code changes don't invalidate cache)
+COPY . /workspace/vape-product-tagger
+WORKDIR /workspace/vape-product-tagger
 
 # Copy entrypoint script
-COPY pipeline_entrypoint.sh /workspace/pipeline_entrypoint.sh
+COPY vastai/pipeline_entrypoint.sh /workspace/pipeline_entrypoint.sh
 RUN chmod +x /workspace/pipeline_entrypoint.sh
 
 # Expose Ollama port
