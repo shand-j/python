@@ -1,0 +1,8 @@
+{
+  "instance_id": "28653897",
+  "ssh": "(use: vastai ssh 28653897)",
+  "gpu": "A40",
+  "price": 0.2943,
+  "workers": 4,
+  "created": "2025-12-09T13:17:56Z"
+}

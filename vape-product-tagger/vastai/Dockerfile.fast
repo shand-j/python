@@ -1,0 +1,63 @@
+# Vast.ai Pipeline Template - Fast Build Version
+# For testing - models pulled on first run instead of baked into image
+#
+# Build: docker build -f vastai/Dockerfile.fast -t coglabs/vape-tagger:fast .
+# Image size: ~10GB (vs 37GB with pre-loaded models)
+# Startup time: 15-20min for model downloads on first run
+
+FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-devel
+
+LABEL maintainer="vape-product-tagger"
+LABEL description="Fast-build pipeline for product tagging (models downloaded on startup)"
+
+# Prevent interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+ENV OLLAMA_HOST=0.0.0.0:11434
+
+# System dependencies - single layer for speed
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git curl wget vim htop nvtop sqlite3 bc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Ollama
+RUN curl -fsSL https://ollama.ai/install.sh | sh
+
+# Create workspace
+WORKDIR /workspace
+
+# Copy and install all Python dependencies in one layer
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r /tmp/requirements.txt && \
+    pip install --no-cache-dir \
+        transformers==4.36.0 \
+        peft==0.7.1 \
+        trl==0.7.4 \
+        bitsandbytes==0.41.3 \
+        accelerate==0.25.0 \
+        datasets==2.15.0 \
+        scikit-learn==1.3.2
+
+# Create directories
+RUN mkdir -p /workspace/data /workspace/models /workspace/output /workspace/checkpoints /workspace/logs /workspace/cache
+
+# Copy project files
+COPY . /workspace/vape-product-tagger
+WORKDIR /workspace/vape-product-tagger
+
+# Copy entrypoint script
+COPY vastai/pipeline_entrypoint.sh /workspace/pipeline_entrypoint.sh
+RUN chmod +x /workspace/pipeline_entrypoint.sh
+
+# Expose Ollama port
+EXPOSE 11434
+
+# Environment variables
+ENV WORKSPACE=/workspace
+ENV DATA_DIR=/workspace/data
+ENV OUTPUT_DIR=/workspace/output
+ENV PYTHONPATH=/workspace/vape-product-tagger:$PYTHONPATH
+
+# Default command
+CMD ["/workspace/pipeline_entrypoint.sh"]

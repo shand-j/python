@@ -24,7 +24,7 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 # Configuration
-DOCKER_USER="${DOCKER_USER:-shandj}"
+DOCKER_USER="${DOCKER_USER:-coglabs}"
 IMAGE_NAME="vape-tagger"
 VERSION=$(date +%Y%m%d)
 PLATFORM="linux/amd64"

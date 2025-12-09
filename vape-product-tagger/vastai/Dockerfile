@@ -1,7 +1,7 @@
 # Vast.ai Pipeline Template for Vape Product Tagger
 # Includes Ollama for AI cascade tagging and QLoRA training support
 #
-# Build: docker build -f vastai/Dockerfile -t shandj/vape-tagger:latest .
+# Build: docker build -f vastai/Dockerfile -t coglabs/vape-tagger:latest .
 # Supports: Tagging pipeline + Training (24GB+ VRAM recommended)
 
 FROM pytorch/pytorch:2.1.0-cuda12.1-cudnn8-devel
@@ -34,23 +34,21 @@ WORKDIR /workspace
 
 # Copy and install Python dependencies
 COPY requirements.txt /tmp/requirements.txt
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Install training dependencies (for QLoRA fine-tuning)
+# Install training dependencies (for QLoRA fine-tuning) - use specific versions to avoid resolver issues
 RUN pip install --no-cache-dir \
-    torch>=2.1.0 \
-    transformers>=4.36.0 \
-    peft>=0.7.0 \
-    trl>=0.7.0 \
-    bitsandbytes>=0.41.0 \
-    accelerate>=0.25.0 \
-    datasets>=2.15.0 \
-    scikit-learn>=1.3.0
+    transformers==4.36.0 \
+    peft==0.7.1 \
+    trl==0.7.4 \
+    bitsandbytes==0.41.3 \
+    accelerate==0.25.0 \
+    datasets==2.15.0 \
+    scikit-learn==1.3.2
 
-# Install flash-attention (optional, improves training speed)
-RUN pip install --no-cache-dir flash-attn --no-build-isolation || \
-    echo "flash-attn install failed, continuing without it"
+# Skip flash-attention - it's optional and takes 5+ minutes to build
+# Users can install manually if needed: pip install flash-attn --no-build-isolation
 
 # Create directories
 RUN mkdir -p \
@@ -73,8 +71,8 @@ RUN ollama serve & \
     echo "Pulling llama3.1:latest..." && \
     ollama pull llama3.1:latest && \
     echo "Models cached successfully" && \
-    kill $OLLAMA_PID && \
-    wait $OLLAMA_PID 2>/dev/null || true
+    kill "$OLLAMA_PID" && \
+    wait "$OLLAMA_PID" 2>/dev/null || true
 
 # Copy project files (done after deps so code changes don't invalidate cache)
 COPY . /workspace/vape-product-tagger

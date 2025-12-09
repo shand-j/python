@@ -1,17 +1,27 @@
 {
-  "name": "Vape Product Tagger Training",
-  "description": "QLoRA fine-tuning for Shopify product tagging with Llama 3.1 8B Instruct",
-  "image": "pytorch/pytorch:2.1.0-cuda12.1-cudnn8-devel",
+  "name": "Vape Product Tagger - Pre-loaded",
+  "description": "AI-powered product tagging with Ollama models pre-loaded (mistral, gpt-oss, llama3.1). Ready in 30 seconds.",
+  "image": "coglabs/vape-tagger:latest",
   "docker_command": null,
-  "readme": "# Vape Product Tagger Training Template\n\nQLoRA fine-tuning pipeline for AI-powered product tagging.\n\n## Requirements\n- 24GB+ VRAM (RTX 4090, A5000, A6000, etc.)\n- 50GB+ disk space for model and checkpoints\n\n## Quick Start\n```bash\ncd /workspace\ngit clone https://github.com/shand-j/python.git\ncd python/vape-product-tagger\npip install -r vastai/requirements-train.txt\nhuggingface-cli login\npython train_tag_model.py --train --input training_data.jsonl\n```\n\n## Environment Variables\nSet in Vast.ai instance or .env:\n- HF_TOKEN: Hugging Face access token\n- HF_REPO_ID: Target repo for LoRA adapters\n- WANDB_API_KEY: (optional) Weights & Biases logging",
+  "readme": "# Vape Product Tagger - Pre-loaded Template\n\n🚀 **Ready-to-run instance with all models pre-loaded**\n\nIncludes:\n- Ollama with mistral:latest, gpt-oss:latest, llama3.1:latest\n- PyTorch 2.1 + CUDA 12.1\n- All dependencies (transformers, PEFT, TRL, bitsandbytes)\n- QLoRA training support\n\n## Requirements\n- 24GB+ VRAM (RTX 4090, A5000, A6000, etc.)\n- 60GB+ disk space for models and outputs\n\n## Quick Start\n\n### 1. Upload your data\n```bash\n# From your local machine\nvastai scp <instance_id>:/workspace/data/ data/input/products.csv\n```\n\n### 2. Run tagging pipeline\n```bash\n# SSH into instance\nvastai ssh <instance_id>\n\n# Run the pipeline (models already loaded!)\ncd /workspace/vape-product-tagger\nsource venv/bin/activate\npython scripts/1_main.py --input /workspace/data/products.csv --workers 4\n```\n\n### 3. Download results\n```bash\n# From your local machine\nvastai scp <instance_id>:/workspace/output/ ./output/\n```\n\n## Environment Variables\n- `WORKERS`: Number of parallel workers (default: 4)\n- `AI_CONFIDENCE_THRESHOLD`: Minimum confidence for AI tags (default: 0.7)\n- `OLLAMA_MODEL`: Model to use (default: llama3.1:latest)\n- `HF_TOKEN`: Hugging Face token (for fine-tuning)\n- `HF_REPO_ID`: HF repo for LoRA adapters (for fine-tuning)\n\n## Training Mode\n\n### Prepare training data\n```bash\npython scripts/prepare_training_data.py \\\n  --audit-db persistance/audit_*.db \\\n  --output training_data.jsonl \\\n  --min-confidence 0.9\n```\n\n### Fine-tune with QLoRA\n```bash\nhuggingface-cli login  # Enter HF_TOKEN\npython scripts/train_tag_model.py \\\n  --train \\\n  --input training_data.jsonl \\\n  --push-to-hub\n```\n\n## Performance\n- **Startup time**: 30-60 seconds (vs 15-20 minutes manual setup)\n- **Processing**: ~50-100 products/minute (4 workers)\n- **Training**: ~2-3 hours for 60K products (RTX 4090)",
   "env": {
     "PYTORCH_CUDA_ALLOC_CONF": "max_split_size_mb:512",
-    "TOKENIZERS_PARALLELISM": "false"
+    "TOKENIZERS_PARALLELISM": "false",
+    "OLLAMA_HOST": "0.0.0.0:11434",
+    "WORKERS": "4",
+    "AI_CONFIDENCE_THRESHOLD": "0.7",
+    "PYTHONUNBUFFERED": "1"
   },
-  "ports": [],
-  "disk_space": "50GB",
+  "ports": [
+    {
+      "port": 11434,
+      "protocol": "tcp",
+      "description": "Ollama API"
+    }
+  ],
+  "disk_space": "60GB",
   "gpu_memory": "24GB",
   "cuda_version": "12.1",
   "python_version": "3.10",
-  "on_start": "pip install -r /workspace/vastai/requirements-train.txt || true"
+  "on_start": "echo '🚀 Vape Product Tagger ready! Models pre-loaded. Upload data to /workspace/data/products.csv'"
 }
