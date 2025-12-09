@@ -1293,6 +1293,11 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             
             # Insert into audit DB with AI metadata (thread-safe)
             if self.audit_db and self.run_id:
+                # Ensure model_output is always a string (convert dict/list to JSON)
+                model_output = ai_metadata.get('model_output')
+                if isinstance(model_output, (dict, list)):
+                    model_output = json.dumps(model_output)
+                
                 with self._lock:
                     self.audit_db.insert_product(
                         run_id=self.run_id,
@@ -1308,7 +1313,7 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
                         device_evidence=bool('device' in final_tags),
                         skipped=0,
                         ai_prompt=ai_metadata.get('prompt'),
-                        ai_model_output=ai_metadata.get('model_output'),
+                        ai_model_output=model_output,
                         ai_confidence=ai_metadata.get('confidence'),
                         ai_reasoning=ai_metadata.get('reasoning')
                     )
