@@ -172,12 +172,20 @@ def prepare_datasets(jsonl_path: str, val_split: float = 0.2) -> Tuple:
     # Extract categories for stratification
     categories = [d.get('metadata', {}).get('category', 'unknown') for d in data]
     
-    # Stratified split
-    if len(set(categories)) > 1 and len(data) >= 10:
+    # Check if stratification is possible (need at least 2 examples per category)
+    from collections import Counter
+    category_counts = Counter(categories)
+    min_count = min(category_counts.values())
+    can_stratify = len(set(categories)) > 1 and len(data) >= 10 and min_count >= 2
+    
+    # Stratified split if possible
+    if can_stratify:
+        print(f"   Using stratified split ({len(set(categories))} categories)")
         train_data, val_data = train_test_split(
             data, test_size=val_split, stratify=categories, random_state=42
         )
     else:
+        print(f"   Using random split (stratification not possible: min_count={min_count})")
         train_data, val_data = train_test_split(
             data, test_size=val_split, random_state=42
         )
