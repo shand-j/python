@@ -1,6 +1,6 @@
 {
   "category": [
-    "e-liquid", "nicotine_pouches", "disposable", "device", "pod_system", "box_mod", "tank", "coil", "accessory", "pod", "CBD"
+    "e-liquid", "nicotine_pouches", "disposable", "device", "pod_system", "box_mod", "tank", "coil", "accessory", "pod", "CBD", "terpene", "supplement", "extraction_equipment"
   ],
   "capacity": {
     "applies_to": ["tank", "pod"],
@@ -43,7 +43,10 @@
         "shot",
         "isolate",
         "edible",
-        "beverage"
+        "beverage",
+        "crumble",
+        "shatter",
+        "wax"
       ]
     },
     "cbd_type": {
@@ -56,6 +59,18 @@
         "cbda"
       ]
     },
+  "terpene_type": {
+    "applies_to": ["terpene"],
+    "tags": ["indica", "sativa", "hybrid", "balanced", "strain_specific"]
+  },
+  "supplement_type": {
+    "applies_to": ["supplement"],
+    "tags": ["vitamin", "mineral", "nootropic", "mushroom", "probiotic"]
+  },
+  "extraction_type": {
+    "applies_to": ["extraction_equipment"],
+    "tags": ["rosin_press", "extractor", "press"]
+  },
   "flavour_type": {
     "applies_to": ["e-liquid", "disposable", "nicotine_pouches", "pod"],
     "tags": [

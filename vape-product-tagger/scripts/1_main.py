@@ -606,6 +606,53 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             else:
                 rule_tags.append('atomizer')
             forced_category = 'accessory'
+        # NEW: Terpene detection
+        elif 'terpene' in handle_title or 'terpenes' in handle_title:
+            rule_tags.append('terpene')
+            forced_category = 'terpene'
+            # Detect terpene type
+            if 'indica' in handle_title:
+                rule_tags.append('indica')
+            elif 'sativa' in handle_title:
+                rule_tags.append('sativa')
+            elif 'balanced' in handle_title or 'hybrid' in handle_title:
+                rule_tags.append('balanced')
+            else:
+                rule_tags.append('strain_specific')
+        # NEW: Extraction equipment detection
+        elif any(term in handle_title for term in ['rosin press', 'rosin-press', 'pollen press', 'extractor', 'concentrate extractor', 'hex press', 'hex-press']):
+            rule_tags.append('extraction_equipment')
+            forced_category = 'extraction_equipment'
+            if 'rosin' in handle_title or 'pollen' in handle_title:
+                rule_tags.append('rosin_press')
+            elif 'extractor' in handle_title:
+                rule_tags.append('extractor')
+        # NEW: Non-CBD Supplement detection (vitamins, nootropics, etc.)
+        elif any(term in handle_title for term in ['vitamin', 'mineral', 'nootropic', 'mushroom', 'probiotic']) and 'cbd' not in handle_title and 'cbg' not in handle_title:
+            rule_tags.append('supplement')
+            forced_category = 'supplement'
+            if 'vitamin' in handle_title:
+                rule_tags.append('vitamin')
+            elif 'nootropic' in handle_title or 'neuro' in handle_title:
+                rule_tags.append('nootropic')
+            elif 'mushroom' in handle_title or 'agaricus' in handle_title or 'lions mane' in handle_title or 'reishi' in handle_title:
+                rule_tags.append('mushroom')
+            elif 'probiotic' in handle_title:
+                rule_tags.append('probiotic')
+        # NEW: Vape cleaning/accessory detection
+        elif any(term in handle_title for term in ['cleaning swab', 'cleaning wipe', 'cleaning kit', 'vape clean', 'pipe cleaner']):
+            rule_tags.append('accessory')
+            rule_tags.append('tool_kit')
+            forced_category = 'accessory'
+        # NEW: Empty bottle detection
+        elif 'empty' in handle_title and 'bottle' in handle_title:
+            rule_tags.append('accessory')
+            forced_category = 'accessory'
+        # NEW: 510 thread vape pen detection
+        elif '510' in handle_title and any(term in handle_title for term in ['pen', 'battery', 'thread', 'vape']):
+            rule_tags.append('device')
+            rule_tags.append('pen_style')
+            forced_category = 'device'
         elif 'coil' in handle_title:
             rule_tags.append('coil')
             forced_category = 'coil'
