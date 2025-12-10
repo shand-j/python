@@ -1242,14 +1242,15 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         
         self.logger.info(f"Processing {len(products)} products")
         
-        # Load already processed products if resuming
+        # Load already processed products (check ALL runs to prevent duplicates)
         processed_handles = set()
-        if self.audit_db and self.run_id:
+        if self.audit_db:
             conn = self.audit_db._get_connection()
             cur = conn.cursor()
-            cur.execute('SELECT handle FROM products WHERE run_id = ?', (self.run_id,))
+            # Query all handles in DB, not just current run (prevents duplicates across runs)
+            cur.execute('SELECT DISTINCT handle FROM products')
             processed_handles = {row[0] for row in cur.fetchall()}
-            self.logger.info(f"Found {len(processed_handles)} already processed products")
+            self.logger.info(f"Found {len(processed_handles)} already processed products in audit DB")
         
         # Filter out already processed
         products_to_process = [p for p in products if p.get('Handle', '') not in processed_handles]
