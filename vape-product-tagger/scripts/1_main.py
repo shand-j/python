@@ -151,7 +151,10 @@ class ControlledTagger:
         self.ollama_host = os.getenv('OLLAMA_HOST') or os.getenv('OLLAMA_BASE_URL', 'http://localhost:11434')
         self.ollama_timeout = int(os.getenv('OLLAMA_TIMEOUT', 60))
         self.ollama_num_parallel = int(os.getenv('OLLAMA_NUM_PARALLEL', os.getenv('MAX_WORKERS', 4)))
-        self.secondary_ollama_model = os.getenv('OLLAMA_SECONDARY_MODEL', 'gpt-oss:latest')
+        self.secondary_ollama_model = os.getenv('OLLAMA_SECONDARY_MODEL', '')
+        self.tertiary_ollama_model = os.getenv('OLLAMA_TERTIARY_MODEL', '')
+        self.ai_confidence_threshold = float(os.getenv('AI_CONFIDENCE_THRESHOLD', 0.7))
+        self.enable_ai_cascade = os.getenv('ENABLE_AI_CASCADE', 'true').lower() == 'true'
         self.progress_rate_window = max(5, int(os.getenv('PROGRESS_RATE_WINDOW_SECONDS', 30)))
         
         self.no_ai = no_ai
@@ -471,7 +474,8 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         payload = {
             "model": self.ollama_model,
             "messages": [{"role": "user", "content": prompt}],
-            "stream": False
+            "stream": False,
+            "format": "json"  # Force JSON output to prevent markdown wrapping
         }
 
         with self._metrics_lock:
@@ -543,9 +547,16 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             
             ai_metadata['model_output'] = response_text
             
-            # Extract JSON object from response
-            import re
-            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            # Clean markdown code blocks before JSON extraction
+            cleaned_response = re.sub(r'```json\s*', '', response_text)
+            cleaned_response = re.sub(r'```\s*$', '', cleaned_response)
+            cleaned_response = cleaned_response.strip()
+            
+            # Extract JSON object from response - use non-greedy match for nested objects
+            json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', cleaned_response, re.DOTALL)
+            if not json_match:
+                # Fallback to simple pattern for flat JSON
+                json_match = re.search(r'\{.*?\}', cleaned_response, re.DOTALL)
             if json_match:
                 try:
                     ai_response = json.loads(json_match.group())
@@ -556,15 +567,31 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
                     ai_metadata['confidence'] = confidence
                     ai_metadata['reasoning'] = reasoning
                     
-                    # Only use high-confidence suggestions (threshold: 0.7)
-                    if confidence >= 0.7:
+                    # Only use high-confidence suggestions (threshold configurable)
+                    if confidence >= self.ai_confidence_threshold:
                         valid_tags = [tag for tag in suggested_tags if tag in self.all_approved_tags]
                         self.logger.info(f"AI suggested {len(suggested_tags)} tags (confidence: {confidence:.2f}), {len(valid_tags)} valid: {valid_tags}")
                         if reasoning:
                             self.logger.debug(f"AI reasoning: {reasoning}")
+                        ai_metadata['model_used'] = self.ollama_model
                         return valid_tags, ai_metadata
                     else:
-                        self.logger.info(f"AI confidence too low ({confidence:.2f}), skipping suggestions")
+                        # Low confidence - try cascade to secondary/tertiary models
+                        self.logger.info(f"Primary AI confidence too low ({confidence:.2f}), attempting cascade...")
+                        ai_metadata['primary_confidence'] = confidence
+                        ai_metadata['primary_tags'] = suggested_tags
+                        
+                        cascade_result = self._try_cascade_models(prompt, ai_metadata)
+                        if cascade_result:
+                            return cascade_result
+                        
+                        # All cascade attempts failed - return primary result anyway if it had some tags
+                        valid_tags = [tag for tag in suggested_tags if tag in self.all_approved_tags]
+                        if valid_tags:
+                            self.logger.info(f"Cascade failed, using low-confidence primary result: {valid_tags}")
+                            ai_metadata['model_used'] = self.ollama_model
+                            ai_metadata['needs_manual_review'] = True
+                            return valid_tags, ai_metadata
                         return [], ai_metadata
                         
                 except json.JSONDecodeError:
@@ -577,6 +604,79 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         except Exception as e:
             self.logger.error(f"AI tagging error: {e}")
             return [], ai_metadata
+    
+    def _try_cascade_models(self, prompt, ai_metadata):
+        """Try secondary and tertiary models for better confidence.
+        Returns (valid_tags, ai_metadata) if successful, None if all fail."""
+        
+        if not self.enable_ai_cascade:
+            return None
+        
+        models_to_try = []
+        if self.secondary_ollama_model and self._is_ollama_model_available(self.secondary_ollama_model):
+            models_to_try.append(('secondary', self.secondary_ollama_model))
+        if self.tertiary_ollama_model and self._is_ollama_model_available(self.tertiary_ollama_model):
+            models_to_try.append(('tertiary', self.tertiary_ollama_model))
+        
+        for model_name, model_id in models_to_try:
+            try:
+                self.logger.info(f"Trying {model_name} model: {model_id}")
+                response_text = self._call_ollama_model_direct(model_id, prompt)
+                
+                if not response_text:
+                    continue
+                
+                # Parse response
+                cleaned = re.sub(r'```json\s*', '', response_text)
+                cleaned = re.sub(r'```\s*$', '', cleaned).strip()
+                
+                json_match = re.search(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', cleaned, re.DOTALL)
+                if not json_match:
+                    json_match = re.search(r'\{[^\}]*\}', cleaned, re.DOTALL)
+                
+                if json_match:
+                    ai_response = json.loads(json_match.group())
+                    suggested_tags = ai_response.get('tags', [])
+                    confidence = ai_response.get('confidence', 0.5)
+                    reasoning = ai_response.get('reasoning', '')
+                    
+                    if confidence >= self.ai_confidence_threshold:
+                        valid_tags = [tag for tag in suggested_tags if tag in self.all_approved_tags]
+                        self.logger.info(f"{model_name.capitalize()} model succeeded: {len(valid_tags)} tags, confidence {confidence:.2f}")
+                        ai_metadata['confidence'] = confidence
+                        ai_metadata['reasoning'] = reasoning
+                        ai_metadata['model_used'] = model_id
+                        ai_metadata['cascade_level'] = model_name
+                        return valid_tags, ai_metadata
+                    else:
+                        self.logger.info(f"{model_name.capitalize()} model confidence too low: {confidence:.2f}")
+                        ai_metadata[f'{model_name}_confidence'] = confidence
+                        
+            except Exception as e:
+                self.logger.warning(f"{model_name.capitalize()} model failed: {e}")
+        
+        return None
+    
+    def _call_ollama_model_direct(self, model_id, prompt):
+        """Call a specific Ollama model directly (for cascade)."""
+        url = f"{self.ollama_host}/api/chat"
+        session = self._get_http_session()
+        
+        payload = {
+            "model": model_id,
+            "messages": [{"role": "user", "content": prompt}],
+            "stream": False,
+            "format": "json"
+        }
+        
+        try:
+            response = session.post(url, json=payload, timeout=self.ollama_timeout)
+            response.raise_for_status()
+            result = response.json()
+            return result.get('message', {}).get('content', '').strip()
+        except Exception as e:
+            self.logger.warning(f"Ollama direct call to {model_id} failed: {e}")
+            return None
     
     def get_rule_based_tags(self, handle, title, description=""):
         """Extract obvious tags using rules"""
