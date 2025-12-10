@@ -599,7 +599,7 @@ class ProductTagger:
         # This is optional and can be disabled
         return []
     
-    def tag_product(self, product_data: Dict, use_ai: bool = True) -> Dict:
+    def tag_product(self, product_data: Dict, use_ai: bool = True, force_third_opinion: bool = False) -> Dict:
         """
         Generate comprehensive tags for a product using new refactored pipeline
         
@@ -614,6 +614,7 @@ class ProductTagger:
         Args:
             product_data: Product information dictionary
             use_ai: Whether to use AI enhancement
+            force_third_opinion: Force third opinion recovery even if validation passes
         
         Returns:
             Dict: Enhanced product data with tags and metadata
@@ -708,15 +709,16 @@ class ProductTagger:
         needs_manual_review = False
         final_tags = all_tags
         
-        # Step 5: Attempt third opinion recovery if validation failed
-        if not is_valid:
-            self.logger.warning(f"Validation failed with {len(failure_reasons)} reasons, attempting recovery")
+        # Step 5: Attempt third opinion recovery if validation failed OR forced
+        if not is_valid or force_third_opinion:
+            reason_msg = "forced recovery" if force_third_opinion and is_valid else f"{len(failure_reasons)} validation failures"
+            self.logger.warning(f"Attempting recovery due to: {reason_msg}")
             
             recovery_result = self.third_opinion.attempt_recovery(
                 product_data,
                 ai_tags,
                 rule_tags,
-                failure_reasons,
+                failure_reasons if not is_valid else [],
                 self.tag_validator.get_approved_schema(),
                 category
             )

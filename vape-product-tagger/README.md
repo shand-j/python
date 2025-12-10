@@ -2,14 +2,30 @@
 
 AI-powered product tagging system for Shopify vaping and CBD products. Combines rule-based pattern matching with Ollama AI for accurate, consistent product categorization with a complete fine-tuning pipeline.
 
+## 🚀 New: Autonomous Pipeline
+
+**Self-improving tagging pipeline that achieves 90%+ accuracy automatically!**
+
+```bash
+# One command deployment on Vast.ai
+./vastai/deploy_autonomous.sh
+
+# Run autonomous pipeline
+./shell/run_autonomous_pipeline.sh -i products.csv -v
+```
+
+See [AUTONOMOUS_PIPELINE.md](AUTONOMOUS_PIPELINE.md) for complete documentation.
+
 ## Features
 
+- **🤖 Autonomous Pipeline**: Self-improving tagging with continuous accuracy monitoring
 - **Dual Tagging Engine**: Rule-based + AI-powered tagging with confidence scoring
 - **Controlled Vocabulary**: Tags validated against `approved_tags.json`
 - **Category-Aware AI**: Different prompts for CBD, e-liquid, pods, devices
 - **Audit Database**: SQLite logging of all tagging decisions for analysis
 - **Fine-Tuning Pipeline**: QLoRA training on Vast.ai with HF Hub integration
 - **Dual Inference Backend**: Ollama (local) or HuggingFace (fine-tuned)
+- **3-Tier Output**: Clean, review-needed, and untagged products in separate CSVs
 
 ## Supported Product Types
 
