@@ -756,7 +756,7 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         elif 'coil' in handle_title:
             rule_tags.append('coil')
             forced_category = 'coil'
-        elif 'cbd' in handle_title or 'cbg' in handle_title:
+        elif 'cbd' in handle_title or 'cbg' in handle_title or ('hemp' in handle_title and ('oil' in handle_title or 'seed' in handle_title or 'extract' in handle_title)):
             rule_tags.append('CBD')
             forced_category = 'CBD'
         elif 'e-liquid' in handle_title or 'liquid' in handle_title or ('nic' in handle_title and 'salt' in handle_title) or 'salt' in handle_title or 'mg' in handle_title:
@@ -821,57 +821,83 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         if 'nic' in text and 'salt' in text:
             rule_tags.append('nic_salt')
         
-        # CBD strength detection
-        if 'cbd' in text or 'cbg' in text:
+        # Detect if this is a nic shot (for shortfill exclusion logic later)
+        is_nic_shot = ('nic' in text and 'shot' in text) or 'nicshot' in text or 'nic-shot' in text
+        
+        # CBD strength detection - include hemp products (hemp oil = CBD product)
+        is_cbd_product = 'cbd' in text or 'cbg' in text or ('hemp' in text and ('oil' in text or 'seed' in text or 'extract' in text))
+        if is_cbd_product:
             # CBD form detection - ordered by specificity, NO default fallback
-            # Check specific forms first (capsule/softgel before topical to avoid 'gel' false positives)
+            # Check handle/title FIRST (more reliable), then fall back to description
+            # This prevents description text like "can be rubbed on skin" from overriding "oil" in title
             cbd_form_detected = False
             
-            if any(word in text for word in ['capsule', 'cap', 'softgel', 'soft gel', 'soft-gel', 'gel cap', 'gelcap']):
+            # Priority 1: Check handle/title only first
+            if any(word in handle_title for word in ['capsule', 'cap', 'softgel', 'soft gel', 'soft-gel', 'gel cap', 'gelcap']):
                 rule_tags.append('capsule')
                 cbd_form_detected = True
-            elif any(word in text for word in ['gummy', 'gummies', 'bear', 'candy', 'chew', 'jelly', 'sweets']):
+            elif any(word in handle_title for word in ['gummy', 'gummies', 'bear', 'candy', 'chew', 'jelly', 'sweets']):
                 rule_tags.append('gummy')
                 cbd_form_detected = True
-            elif any(word in text for word in ['topical', 'cream', 'balm', 'salve', 'lotion', 'rub', 'roll-on', 'roller', 'muscle gel', 'skin gel']):
+            elif any(word in handle_title for word in ['topical', 'cream', 'balm', 'salve', 'lotion', 'roll-on', 'roller']):
                 rule_tags.append('topical')
                 cbd_form_detected = True
-            elif any(word in text for word in ['tincture', 'drop', 'drops', 'sublingual', 'extract']):
+            elif any(word in handle_title for word in ['tincture', 'drop', 'drops', 'sublingual', 'extract']):
                 rule_tags.append('tincture')
                 cbd_form_detected = True
-            elif any(word in text for word in ['crumble']):
+            elif any(word in handle_title for word in ['crumble']):
                 rule_tags.append('crumble')
                 cbd_form_detected = True
-            elif any(word in text for word in ['shatter']):
+            elif any(word in handle_title for word in ['shatter']):
                 rule_tags.append('shatter')
                 cbd_form_detected = True
-            elif any(word in text for word in ['wax', 'dab']):
+            elif any(word in handle_title for word in ['wax', 'dab']):
                 rule_tags.append('wax')
                 cbd_form_detected = True
-            elif any(word in text for word in ['paste', 'concentrate', 'raw paste']):
+            elif any(word in handle_title for word in ['paste', 'concentrate', 'raw paste']):
                 rule_tags.append('paste')
                 cbd_form_detected = True
-            elif any(word in text for word in ['shot', 'beverage', 'drink', 'sparkling', 'energy drink', 'soda', 'tea', 'coffee', 'infusion']):
+            elif any(word in handle_title for word in ['shot', 'beverage', 'drink', 'sparkling', 'energy drink', 'soda', 'tea', 'coffee', 'infusion']):
                 rule_tags.append('beverage')
                 cbd_form_detected = True
-            elif any(word in text for word in ['edible', 'cookie', 'brownie', 'chocolate', 'bar', 'snack']):
+            elif any(word in handle_title for word in ['edible', 'cookie', 'brownie', 'chocolate', 'bar', 'snack']):
                 rule_tags.append('edible')
                 cbd_form_detected = True
-            elif any(word in text for word in ['patch', 'transdermal', 'skin patch']):
+            elif any(word in handle_title for word in ['patch', 'transdermal', 'skin patch']):
                 rule_tags.append('patch')
                 cbd_form_detected = True
-            elif any(word in text for word in ['vape', 'cartridge', 'cart', 'disposable', 'e-liquid', 'eliquid']):
+            elif any(word in handle_title for word in ['vape', 'cartridge', 'cart', 'disposable', 'e-liquid', 'eliquid']):
                 rule_tags.append('vape')
                 cbd_form_detected = True
-            elif any(word in text for word in ['flower', 'bud', 'hemp flower', 'pre-roll', 'preroll']):
+            elif any(word in handle_title for word in ['flower', 'bud', 'hemp flower', 'pre-roll', 'preroll']):
                 rule_tags.append('flower')
                 cbd_form_detected = True
+            # Check for oil in handle/title specifically (common CBD form)
+            elif 'oil' in handle_title:
+                rule_tags.append('tincture')
+                cbd_form_detected = True
             
-            # Only check for 'oil' if no other form was detected (avoid false positives)
-            if not cbd_form_detected and 'oil' in text:
-                rule_tags.append('tincture')  # Oil typically means tincture
-            
-            # NO default fallback - let AI handle ambiguous products
+            # Priority 2: If no form found in handle/title, check full text (including description)
+            # But be more careful with short words that can cause false positives
+            if not cbd_form_detected:
+                # Use word-boundary matching for short words to avoid false positives
+                # e.g., "rubbed" shouldn't match "rub" when it's incidental description text
+                if any(word in text for word in ['topical', 'cream', 'balm', 'salve', 'lotion', 'roll-on', 'roller']):
+                    rule_tags.append('topical')
+                    cbd_form_detected = True
+                elif any(word in text for word in ['tincture', 'drops', 'sublingual']):
+                    rule_tags.append('tincture')
+                    cbd_form_detected = True
+                elif any(word in text for word in ['capsule', 'softgel', 'gelcap']):
+                    rule_tags.append('capsule')
+                    cbd_form_detected = True
+                elif any(word in text for word in ['beverage', 'drink', 'sparkling', 'soda', 'tea', 'coffee']):
+                    rule_tags.append('beverage')
+                    cbd_form_detected = True
+                # Final fallback: if still no form and 'oil' appears, assume tincture
+                elif 'oil' in text:
+                    rule_tags.append('tincture')
+                    cbd_form_detected = True
             
             # CBD spectrum type detection - NO default fallback
             if 'full spectrum' in text or 'full-spectrum' in text or 'fullspectrum' in text:
@@ -918,11 +944,15 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
                 if 'unlimited mg' in self.approved_tags.get('cbd_strength', {}).get('tags', []):
                     rule_tags.append('unlimited mg')
         
-        # Bottle size detection
-        for size in ['2ml', '5ml', '10ml', '20ml', '30ml', '50ml', '100ml']:
-            if size in text:
-                rule_tags.append(size)
-                break
+        # Bottle size detection - check for various formats
+        bottle_size_match = re.search(r'(\d+)\s*ml\b', text, re.IGNORECASE)
+        if bottle_size_match:
+            detected_size = bottle_size_match.group(1)
+            size_tag = f"{detected_size}ml"
+            # Only add if it's a standard bottle size in approved tags or common sizes
+            standard_sizes = ['2ml', '5ml', '10ml', '20ml', '30ml', '50ml', '100ml', '120ml']
+            if size_tag in standard_sizes:
+                rule_tags.append(size_tag)
         
         # VG/PG ratio detection - advanced patterns
         ratio_matches = re.findall(r'(\d+)\s*vg\s*[/-]\s*(\d+)\s*pg', text, re.IGNORECASE)
@@ -992,12 +1022,15 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         
         # Shortfill detection - must have explicit "shortfill" mention AND be 50-100ml
         # Shortfills are larger bottles (60ml, 120ml) filled with 50ml/100ml to allow room for nic shots
-        if 'shortfill' in text:
+        # EXCLUDE nic shots even if they mention "shortfill" (they're added TO shortfills, not shortfills themselves)
+        if 'shortfill' in text and not is_nic_shot:
             # Verify it's actually a shortfill bottle size (50ml, 100ml common)
-            # Don't apply to nic shots (10ml) even if they mention "for shortfills"
             bottle_sizes = re.findall(r'(\d+)\s*ml', text, re.IGNORECASE)
             is_shortfill_size = any(int(size) >= 50 for size in bottle_sizes if size.isdigit())
-            if is_shortfill_size or not bottle_sizes:  # Apply if 50ml+ or size unclear
+            # Only apply shortfill tag if bottle is 50ml+ OR no size detected (benefit of doubt)
+            # If 10ml is explicitly detected, do NOT tag as shortfill
+            has_small_bottle = any(int(size) <= 20 for size in bottle_sizes if size.isdigit())
+            if is_shortfill_size or (not bottle_sizes and not has_small_bottle):
                 rule_tags.append('shortfill')
         
         # Basic product type

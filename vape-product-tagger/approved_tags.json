@@ -7,7 +7,7 @@
     "tags": [ "2ml","2.5ml", "3ml", "4ml", "5ml", "6ml", "7ml", "8ml", "9ml", "10ml"]
   },
   "bottle_size": {
-    "applies_to": ["e-liquid"],
+    "applies_to": ["e-liquid", "CBD"],
     "tags": ["5ml", "10ml", "20ml", "30ml", "50ml", "100ml", "shortfill"]
   },
   "device_style": {
