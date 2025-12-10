@@ -1120,9 +1120,47 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
                 count / total * 100,
                 window_rate,
                 avg_rate,
-                eta_label,
-                ai_inflight,
-            )
+            eta_label,
+            ai_inflight,
+        )
+        
+        # Insert into audit DB immediately (before returning, to ensure all products are saved)
+        if self.audit_db and self.run_id:
+            try:
+                # Ensure all metadata values are correct types
+                model_output = ai_metadata.get('model_output')
+                if isinstance(model_output, (dict, list)):
+                    model_output = json.dumps(model_output)
+                
+                confidence = ai_metadata.get('confidence')
+                if isinstance(confidence, (dict, list)):
+                    confidence = json.dumps(confidence) if confidence else None
+                
+                reasoning = ai_metadata.get('reasoning')
+                if isinstance(reasoning, (dict, list)):
+                    reasoning = json.dumps(reasoning) if reasoning else None
+                
+                with self._lock:
+                    self.audit_db.insert_product(
+                        run_id=self.run_id,
+                        handle=handle,
+                        title=product_dict['title'],
+                        csv_type=self.default_product_type or '',
+                        effective_type=product_category or '',
+                        description=product_dict['description'],
+                        rule_tags=rule_tags,
+                        ai_tags=ai_tags,
+                        final_tags=final_tags,
+                        forced_category=forced_category,
+                        device_evidence=bool('device' in final_tags),
+                        skipped=0,
+                        ai_prompt=ai_metadata.get('prompt'),
+                        ai_model_output=model_output,
+                        ai_confidence=confidence,
+                        ai_reasoning=reasoning
+                    )
+            except Exception as e:
+                self.logger.error(f"Failed to insert {handle} into audit DB: {e}")
         
         return {
             'handle': handle,
@@ -1135,9 +1173,7 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             'product_category': product_category,
             'ai_metadata': ai_metadata,
             'tag_by_cat': dict(tag_by_cat),
-        }
-    
-    def _log_performance_summary(self, total, start_time, ai_skipped=0):
+        }    def _log_performance_summary(self, total, start_time, ai_skipped=0):
         """Log final performance statistics"""
         elapsed = time.time() - start_time
         smoothed_elapsed = max(elapsed, 5)
@@ -1289,42 +1325,7 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             product_category = result['product_category']
             ai_metadata = result['ai_metadata']
             
-            self.logger.debug(f"Product: {handle} | Category: {product_category} | Final tags: {final_tags}")
-            
-            # Insert into audit DB with AI metadata (thread-safe)
-            if self.audit_db and self.run_id:
-                # Ensure all metadata values are correct types (no dicts/lists except for tag arrays)
-                model_output = ai_metadata.get('model_output')
-                if isinstance(model_output, (dict, list)):
-                    model_output = json.dumps(model_output)
-                
-                confidence = ai_metadata.get('confidence')
-                if isinstance(confidence, (dict, list)):
-                    confidence = json.dumps(confidence) if confidence else None
-                
-                reasoning = ai_metadata.get('reasoning')
-                if isinstance(reasoning, (dict, list)):
-                    reasoning = json.dumps(reasoning) if reasoning else None
-                
-                with self._lock:
-                    self.audit_db.insert_product(
-                        run_id=self.run_id,
-                        handle=handle,
-                        title=product_dict['title'],
-                        csv_type=self.default_product_type or '',
-                        effective_type=product_category or '',
-                        description=product_dict['description'],
-                        rule_tags=rule_tags,
-                        ai_tags=ai_tags,
-                        final_tags=final_tags,
-                        forced_category=forced_category,
-                        device_evidence=bool('device' in final_tags),
-                        skipped=0,
-                        ai_prompt=ai_metadata.get('prompt'),
-                        ai_model_output=model_output,
-                        ai_confidence=confidence,
-                        ai_reasoning=reasoning
-                    )
+            # Note: Database insertion now happens inside _process_single_product
             
             # Create output product
             product_output = {
