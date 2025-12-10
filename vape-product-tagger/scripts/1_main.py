@@ -165,8 +165,8 @@ class ControlledTagger:
         self._hf_model = None
         self._hf_tokenizer = None
         
-        # Optional audit DB for persisting decisions
-        self.audit_db = TagAuditDB(audit_db_path) if audit_db_path else None
+        # Optional audit DB for persisting decisions (thread-safe for parallel processing)
+        self.audit_db = TagAuditDB(audit_db_path, thread_safe=True) if audit_db_path else None
         # Handle run_id: if provided, resume; else start new
         self.run_id = run_id
         if self.audit_db:
