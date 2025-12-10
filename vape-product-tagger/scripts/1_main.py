@@ -1173,7 +1173,9 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             'product_category': product_category,
             'ai_metadata': ai_metadata,
             'tag_by_cat': dict(tag_by_cat),
-        }    def _log_performance_summary(self, total, start_time, ai_skipped=0):
+        }
+    
+    def _log_performance_summary(self, total, start_time, ai_skipped=0):
         """Log final performance statistics"""
         elapsed = time.time() - start_time
         smoothed_elapsed = max(elapsed, 5)
