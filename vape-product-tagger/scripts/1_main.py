@@ -739,7 +739,16 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             elif any(word in text for word in ['tincture', 'drop', 'drops', 'sublingual', 'extract']):
                 rule_tags.append('tincture')
                 cbd_form_detected = True
-            elif any(word in text for word in ['paste', 'crumble', 'shatter', 'wax', 'concentrate', 'raw paste', 'dab']):
+            elif any(word in text for word in ['crumble']):
+                rule_tags.append('crumble')
+                cbd_form_detected = True
+            elif any(word in text for word in ['shatter']):
+                rule_tags.append('shatter')
+                cbd_form_detected = True
+            elif any(word in text for word in ['wax', 'dab']):
+                rule_tags.append('wax')
+                cbd_form_detected = True
+            elif any(word in text for word in ['paste', 'concentrate', 'raw paste']):
                 rule_tags.append('paste')
                 cbd_form_detected = True
             elif any(word in text for word in ['shot', 'beverage', 'drink', 'sparkling', 'energy drink', 'soda', 'tea', 'coffee', 'infusion']):
