@@ -308,6 +308,7 @@ class AutonomousPipeline:
         self.logger.info(f"Untagged: {metrics['untagged_count']} ({metrics['untagged_count']/metrics['total_products']*100:.1f}%)")
         
         # Check if target met
+        iteration = 0  # Initialize iteration counter
         if metrics['overall_accuracy'] >= self.accuracy_target:
             self.logger.info(f"✅ Target accuracy {self.accuracy_target*100}% achieved!")
         else:

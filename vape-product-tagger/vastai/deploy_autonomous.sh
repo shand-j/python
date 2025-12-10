@@ -20,7 +20,7 @@ echo ""
 # Step 1: System updates and dependencies
 echo -e "${YELLOW}[1/8] Installing system dependencies...${NC}"
 apt-get update -qq
-apt-get install -y -qq bc curl sqlite3 git > /dev/null 2>&1
+apt-get install -y -qq bc curl sqlite3 git wget > /dev/null 2>&1
 echo -e "${GREEN}✓ System dependencies installed${NC}"
 
 # Step 2: Check Python

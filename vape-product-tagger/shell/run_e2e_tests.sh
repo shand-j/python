@@ -159,12 +159,12 @@ $PYTHON scripts/1_main.py \
     --workers 1 \
     --verbose > "$TEST_LOG_DIR/test_cbd.log" 2>&1
 
-CBD_COUNT=$(sqlite3 "$TEST_DB_DIR/test_cbd.db" "SELECT COUNT(*) FROM products WHERE category='CBD'" 2>/dev/null || echo "0")
+CBD_COUNT=$(sqlite3 "$TEST_DB_DIR/test_cbd.db" "SELECT COUNT(*) FROM products WHERE final_tags LIKE 'CBD,%' OR final_tags = 'CBD' OR final_tags LIKE '%,CBD,%' OR final_tags LIKE '%,CBD'" 2>/dev/null || echo "0")
 if [ "$CBD_COUNT" -gt 0 ]; then
     log_test "PASS" "CBD products categorized ($CBD_COUNT products)"
     
     # Check for CBD-specific tags
-    CBD_WITH_STRENGTH=$(sqlite3 "$TEST_DB_DIR/test_cbd.db" "SELECT COUNT(*) FROM products WHERE category='CBD' AND final_tags LIKE '%mg%'" 2>/dev/null || echo "0")
+    CBD_WITH_STRENGTH=$(sqlite3 "$TEST_DB_DIR/test_cbd.db" "SELECT COUNT(*) FROM products WHERE (final_tags LIKE 'CBD,%' OR final_tags = 'CBD' OR final_tags LIKE '%,CBD,%' OR final_tags LIKE '%,CBD') AND final_tags LIKE '%mg%'" 2>/dev/null || echo "0")
     if [ "$CBD_WITH_STRENGTH" -gt 0 ]; then
         log_test "PASS" "CBD strength extraction working ($CBD_WITH_STRENGTH products)"
     else
@@ -186,12 +186,12 @@ $PYTHON scripts/1_main.py \
     --workers 1 \
     --verbose > "$TEST_LOG_DIR/test_eliquid.log" 2>&1
 
-ELIQUID_COUNT=$(sqlite3 "$TEST_DB_DIR/test_eliquid.db" "SELECT COUNT(*) FROM products WHERE category='e-liquid'" 2>/dev/null || echo "0")
+ELIQUID_COUNT=$(sqlite3 "$TEST_DB_DIR/test_eliquid.db" "SELECT COUNT(*) FROM products WHERE final_tags LIKE 'e-liquid,%' OR final_tags = 'e-liquid' OR final_tags LIKE '%,e-liquid,%' OR final_tags LIKE '%,e-liquid'" 2>/dev/null || echo "0")
 if [ "$ELIQUID_COUNT" -gt 0 ]; then
     log_test "PASS" "E-liquid products categorized ($ELIQUID_COUNT products)"
     
     # Check for VG/PG ratios
-    VGPG_COUNT=$(sqlite3 "$TEST_DB_DIR/test_eliquid.db" "SELECT COUNT(*) FROM products WHERE category='e-liquid' AND final_tags LIKE '%/%'" 2>/dev/null || echo "0")
+    VGPG_COUNT=$(sqlite3 "$TEST_DB_DIR/test_eliquid.db" "SELECT COUNT(*) FROM products WHERE (final_tags LIKE 'e-liquid,%' OR final_tags = 'e-liquid' OR final_tags LIKE '%,e-liquid,%' OR final_tags LIKE '%,e-liquid') AND final_tags LIKE '%/%'" 2>/dev/null || echo "0")
     if [ "$VGPG_COUNT" -gt 0 ]; then
         log_test "PASS" "VG/PG ratio detection working ($VGPG_COUNT products)"
     else
@@ -283,9 +283,9 @@ else
     log_test "FAIL" "Medium batch incomplete ($PROCESSED/50 products)"
 fi
 
-# Check average confidence
+# Check average confidence (using awk for better portability)
 AVG_CONFIDENCE=$(sqlite3 "$TEST_DB_DIR/test_50.db" "SELECT ROUND(AVG(primary_model_confidence), 2) FROM products WHERE primary_model_confidence IS NOT NULL" 2>/dev/null || echo "0")
-if (( $(echo "$AVG_CONFIDENCE >= 0.70" | bc -l) )); then
+if awk -v avg="$AVG_CONFIDENCE" 'BEGIN { exit (avg >= 0.70) ? 0 : 1 }'; then
     log_test "PASS" "Average confidence acceptable ($AVG_CONFIDENCE)"
 else
     log_test "FAIL" "Average confidence too low ($AVG_CONFIDENCE)"
@@ -324,7 +324,8 @@ fi
 
 # Test 15: Category distribution
 echo -e "${YELLOW}Checking category distribution...${NC}"
-CATEGORIZED=$(sqlite3 "$TEST_DB_DIR/test_50.db" "SELECT COUNT(*) FROM products WHERE category IS NOT NULL" 2>/dev/null || echo "0")
+# Category is stored as first tag in final_tags, so count products with non-empty tags
+CATEGORIZED=$(sqlite3 "$TEST_DB_DIR/test_50.db" "SELECT COUNT(*) FROM products WHERE final_tags IS NOT NULL AND final_tags != '' AND final_tags != '[]'" 2>/dev/null || echo "0")
 TOTAL=$(sqlite3 "$TEST_DB_DIR/test_50.db" "SELECT COUNT(*) FROM products" 2>/dev/null || echo "1")
 CATEGORIZED_PCT=$(awk "BEGIN {printf \"%.0f\", $CATEGORIZED/$TOTAL*100}")
 
