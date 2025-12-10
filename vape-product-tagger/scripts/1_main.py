@@ -1293,10 +1293,18 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             
             # Insert into audit DB with AI metadata (thread-safe)
             if self.audit_db and self.run_id:
-                # Ensure model_output is always a string (convert dict/list to JSON)
+                # Ensure all metadata values are correct types (no dicts/lists except for tag arrays)
                 model_output = ai_metadata.get('model_output')
                 if isinstance(model_output, (dict, list)):
                     model_output = json.dumps(model_output)
+                
+                confidence = ai_metadata.get('confidence')
+                if isinstance(confidence, (dict, list)):
+                    confidence = json.dumps(confidence) if confidence else None
+                
+                reasoning = ai_metadata.get('reasoning')
+                if isinstance(reasoning, (dict, list)):
+                    reasoning = json.dumps(reasoning) if reasoning else None
                 
                 with self._lock:
                     self.audit_db.insert_product(
@@ -1314,8 +1322,8 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
                         skipped=0,
                         ai_prompt=ai_metadata.get('prompt'),
                         ai_model_output=model_output,
-                        ai_confidence=ai_metadata.get('confidence'),
-                        ai_reasoning=ai_metadata.get('reasoning')
+                        ai_confidence=confidence,
+                        ai_reasoning=reasoning
                     )
             
             # Create output product
