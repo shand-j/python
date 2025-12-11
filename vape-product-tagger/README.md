@@ -44,6 +44,30 @@ See [AUTONOMOUS_PIPELINE.md](AUTONOMOUS_PIPELINE.md) for complete documentation.
 
 ## Quick Start
 
+### Autonomous Pipeline (Recommended)
+
+Get 90%+ accuracy automatically with self-improving tagging:
+
+```bash
+# Setup
+cd vape-product-tagger
+pip install -r requirements.txt
+cp config.env.example config.env
+
+# (Optional) Start Ollama for AI tagging
+ollama serve &
+ollama pull mistral:latest
+
+# Run autonomous pipeline
+./shell/run_autonomous_pipeline.sh -i your_products.csv -v
+```
+
+See [QUICKSTART_AUTONOMOUS.md](QUICKSTART_AUTONOMOUS.md) for complete guide.
+
+### Manual Pipeline
+
+For more control over individual steps:
+
 ```bash
 # Setup
 cd vape-product-tagger
@@ -54,7 +78,7 @@ source venv/bin/activate
 ollama serve
 
 # Run tagger
-python main.py --input input/products.csv --audit-db output/audit.sqlite3
+python scripts/1_main.py --input input/products.csv --audit-db output/audit.sqlite3
 ```
 
 See [QUICKSTART.md](QUICKSTART.md) for detailed setup instructions.
