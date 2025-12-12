@@ -46,7 +46,9 @@
         "beverage",
         "crumble",
         "shatter",
-        "wax"
+        "wax",
+        "e-liquid",
+        "bath_salts"
       ]
     },
     "cbd_type": {
@@ -82,7 +84,8 @@
       "nuts",
       "spices_&_herbs",
       "cereal",
-      "unflavoured"
+      "unflavoured",
+      "candy/sweets"
     ]
   },
   "nicotine_type": {

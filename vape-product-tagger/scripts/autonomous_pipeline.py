@@ -105,14 +105,16 @@ class AutonomousPipeline:
         """
         total = len(products)
         if total == 0:
-            return {'overall_accuracy': 0.0, 'clean_count': 0, 'review_count': 0, 'untagged_count': 0}
+            return {'overall_accuracy': 0.0, 'clean_count': 0, 'review_count': 0, 'untagged_count': 0, 'tagging_rate': 0.0}
         
         clean_count = len([p for p in products if p.get('tags') and not p.get('needs_manual_review')])
         review_count = len([p for p in products if p.get('tags') and p.get('needs_manual_review')])
         untagged_count = len([p for p in products if not p.get('tags')])
+        tagged_count = clean_count + review_count
         
         # Calculate confidence distribution
-        confidences = [p.get('ai_confidence', 0.0) for p in products if p.get('ai_confidence')]
+        confidences = [p.get('confidence_scores', {}).get('ai_confidence', 0.0) for p in products]
+        confidences = [c for c in confidences if c and c > 0]
         avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
         
         # Calculate category coverage
@@ -134,7 +136,9 @@ class AutonomousPipeline:
             'clean_count': clean_count,
             'review_count': review_count,
             'untagged_count': untagged_count,
-            'overall_accuracy': clean_count / total,
+            'tagged_count': tagged_count,
+            'overall_accuracy': clean_count / total,  # Clean rate (target: 90%)
+            'tagging_rate': tagged_count / total,     # Any tags rate
             'avg_confidence': avg_confidence,
             'categories': categories
         }
@@ -279,7 +283,8 @@ class AutonomousPipeline:
                        input_csv: Path,
                        output_dir: Path,
                        use_ai: bool = True,
-                       limit: int = None) -> int:
+                       limit: int = None,
+                       inventory_csv: Path = None) -> int:
         """
         Run autonomous pipeline with continuous improvement
         
@@ -288,11 +293,15 @@ class AutonomousPipeline:
             output_dir: Output directory
             use_ai: Enable AI tagging
             limit: Limit processing
+            inventory_csv: Optional inventory CSV for SKU lookup
             
         Returns:
             Exit code (0 = success)
         """
         output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Store inventory path for export
+        self.inventory_csv = inventory_csv
         
         # Initial tagging cycle
         products, metrics = self.run_tagging_cycle(
@@ -338,12 +347,17 @@ class AutonomousPipeline:
                 
                 iteration += 1
         
-        # Export final results
+        # Export final results - use new method that preserves all variant rows
         self.logger.info("="*80)
         self.logger.info("📤 Exporting Final Results")
         self.logger.info("="*80)
         
-        output_paths = self.shopify_handler.export_to_csv_three_tier(products, str(output_dir))
+        output_paths = self.shopify_handler.export_with_original_variants(
+            products, 
+            str(input_csv), 
+            str(output_dir),
+            inventory_csv_path=str(self.inventory_csv) if self.inventory_csv else None
+        )
         
         for tier, path in output_paths.items():
             self.logger.info(f"✓ {tier}: {path}")
@@ -352,16 +366,18 @@ class AutonomousPipeline:
         self.logger.info("="*80)
         self.logger.info("🎯 Final Summary")
         self.logger.info("="*80)
-        self.logger.info(f"Target Accuracy: {self.accuracy_target*100}%")
-        self.logger.info(f"Achieved Accuracy: {metrics['overall_accuracy']*100:.1f}%")
+        self.logger.info(f"Target Accuracy: {self.accuracy_target*100:.0f}%")
+        self.logger.info(f"Achieved Accuracy: {metrics['overall_accuracy']*100:.1f}% (clean products)")
+        self.logger.info(f"Tagging Rate: {metrics.get('tagging_rate', 0)*100:.1f}% (any tags)")
+        self.logger.info(f"Avg Confidence: {metrics.get('avg_confidence', 0)*100:.1f}%")
         self.logger.info(f"Total Iterations: {iteration + 1}")
-        self.logger.info(f"Clean Products: {metrics['clean_count']}/{metrics['total_products']}")
+        self.logger.info(f"Products: {metrics['clean_count']} clean, {metrics['review_count']} review, {metrics['untagged_count']} untagged / {metrics['total_products']} total")
         
         # Category breakdown
         self.logger.info("\nCategory Breakdown:")
         for cat, stats in metrics['categories'].items():
             accuracy = stats['clean'] / stats['total'] if stats['total'] > 0 else 0
-            self.logger.info(f"  {cat}: {accuracy*100:.1f}% ({stats['clean']}/{stats['total']} clean)")
+            self.logger.info(f"  {cat}: {accuracy*100:.1f}% clean ({stats['clean']}/{stats['total']})")
         
         if metrics['overall_accuracy'] >= self.accuracy_target:
             self.logger.info("\n✅ PIPELINE SUCCEEDED - Target accuracy achieved!")
@@ -398,6 +414,8 @@ Examples:
                        help='Input CSV file path')
     parser.add_argument('--output', '-o', default='output',
                        help='Output directory (default: output/)')
+    parser.add_argument('--inventory', '-inv',
+                       help='Inventory CSV file path for SKU lookup')
     parser.add_argument('--config', '-c',
                        help='Configuration file path')
     parser.add_argument('--no-ai', action='store_true',
@@ -432,7 +450,8 @@ Examples:
             input_csv=Path(args.input),
             output_dir=Path(args.output),
             use_ai=use_ai,
-            limit=args.limit
+            limit=args.limit,
+            inventory_csv=Path(args.inventory) if args.inventory else None
         )
         
         sys.exit(exit_code)

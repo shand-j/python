@@ -104,6 +104,11 @@ class TagValidator:
         if tag in schema.get('category', []):
             return True, None
         
+        # Track if tag was found in ANY dimension and if ANY dimension allows it
+        found_in_dimension = False
+        allowed_in_dimension = False
+        last_failure_reason = None
+        
         # Check each tag dimension
         for dimension, config in schema.items():
             if dimension == 'category' or dimension == 'rules':
@@ -115,6 +120,7 @@ class TagValidator:
                 import re
                 match = re.match(r'^(\d+(?:\.\d+)?)mg$', tag)
                 if match:
+                    found_in_dimension = True
                     value = float(match.group(1))
                     min_val = config['range']['min']
                     max_val = config['range']['max']
@@ -124,19 +130,27 @@ class TagValidator:
                     if not applies_to or category in applies_to:
                         # This dimension applies - validate range
                         if min_val <= value <= max_val:
-                            return True, None
+                            return True, None  # Valid in this dimension
                         else:
-                            return False, f"Tag '{tag}' value {value} outside range [{min_val}, {max_val}] for dimension '{dimension}'"
+                            last_failure_reason = f"Tag '{tag}' value {value} outside range [{min_val}, {max_val}] for dimension '{dimension}'"
+                    else:
+                        last_failure_reason = f"Tag '{tag}' does not apply to category '{category}' (dimension: {dimension})"
             
             # For enumerated tags
             if 'tags' in config:
                 if tag in config['tags']:
+                    found_in_dimension = True
                     # Check applies_to
                     applies_to = config.get('applies_to', [])
                     if not applies_to or category in applies_to:
-                        return True, None
+                        return True, None  # Valid in this dimension - accept immediately
                     else:
-                        return False, f"Tag '{tag}' does not apply to category '{category}'"
+                        # Tag found but doesn't apply - keep checking other dimensions
+                        last_failure_reason = f"Tag '{tag}' does not apply to category '{category}' (dimension: {dimension})"
+        
+        # If found in some dimension but none allowed it
+        if found_in_dimension:
+            return False, last_failure_reason
         
         return False, f"Tag '{tag}' not found in approved schema"
     

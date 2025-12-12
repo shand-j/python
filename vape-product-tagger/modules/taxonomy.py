@@ -8,18 +8,26 @@ class VapeTaxonomy:
     """Comprehensive vaping product taxonomy definitions"""
     
     # Category Keywords (for detection only, approved_tags.json has allowed category tags)
+    # ORDER MATTERS: More specific categories should come before broader ones
     CATEGORY_KEYWORDS = {
-        "e-liquid": ["e-liquid", "eliquid", "e liquid", "vape juice", "vape liquid", "ejuice"],
-        "nicotine_pouches": ["nicotine pouch", "nic pouch", "pouch", "snus"],
-        "disposable": ["disposable", "single use", "throw away", "one time", "disposable vape"],
-        "device": ["device", "vape device", "vaping device", "mod", "vape mod", "box mod"],
-        "pod_system": ["pod system", "pod mod", "pod device", "pod kit"],
-        "box_mod": ["box mod", "box", "square mod"],
-        "tank": ["tank", "vape tank", "clearomizer", "atomizer tank"],
-        "coil": ["coil", "replacement coil", "coil head", "atomizer head"],
-        "accessory": ["accessory", "accessories", "vape accessory"],
-        "pod": ["pod", "replacement pod", "prefilled pod", "cartridge"],
-        "CBD": ["cbd", "cannabidiol", "hemp"]
+        "CBD": ["cbd", "cannabidiol", "hemp", "cbg", "cbn"],  # CBD first to prioritize
+        "nicotine_pouches": [
+            "nicotine pouch", "nic pouch", "snus", "nicotine candy", "nicotine lozenge",
+            "energy pouches", "spearmint pouches", "mint pouches", "zero pouches"
+        ],  # Before "pouch" alone
+        "e-liquid": [
+            "e-liquid", "eliquid", "e liquid", "vape juice", "vape liquid", "ejuice",
+            "nic salt", "nicotine salt", "shortfill", "longfill", "freebase",
+            "50vg", "70vg", "80vg", "vg/pg", "pg/vg"
+        ],
+        "disposable": ["disposable", "single use", "throw away", "one time", "disposable vape", "disposable pod"],
+        "pod_system": ["pod system", "pod mod", "pod device", "pod kit", "starter kit"],  # Before generic device
+        "box_mod": ["box mod", "square mod"],
+        "device": ["device", "vape device", "vaping device", "mod", "vape mod", "kit"],
+        "tank": ["tank", "vape tank", "clearomizer", "atomizer tank", "sub ohm tank", "sub-ohm tank"],
+        "coil": ["coil", "replacement coil", "coil head", "atomizer head", "mesh coil"],
+        "pod": ["pod", "replacement pod", "prefilled pod", "cartridge", "refillable pod"],
+        "accessory": ["accessory", "accessories", "vape accessory", "drip tip", "battery", "charger"]
     }
     
     # Device Style Keywords (maps to device_style tags in approved_tags.json)
@@ -32,7 +40,7 @@ class VapeTaxonomy:
         "mini": ["mini", "micro", "tiny"]
     }
     
-    # Flavor Type Keywords (approved_tags.json: fruity, ice, tobacco, desserts/bakery, beverages, nuts, spices_&_herbs, cereal, unflavoured)
+    # Flavor Type Keywords (approved_tags.json: fruity, ice, tobacco, desserts/bakery, beverages, nuts, spices_&_herbs, cereal, unflavoured, candy/sweets)
     # Secondary flavor keywords captured opportunistically for richer data
     FLAVOR_KEYWORDS = {
         "fruity": {
@@ -40,7 +48,7 @@ class VapeTaxonomy:
             "secondary_keywords": [
                 # Citrus
                 "lemon", "lime", "orange", "grapefruit", "citrus", "tangerine", "mandarin",
-                # Berry
+                # Berry (real fruits only - not candy versions)
                 "strawberry", "raspberry", "blueberry", "blackberry", "berry", "cranberry",
                 # Tropical
                 "mango", "pineapple", "coconut", "papaya", "guava", "passion fruit", "tropical", "lychee",
@@ -59,12 +67,33 @@ class VapeTaxonomy:
             "secondary_keywords": ["virginia", "havana", "cuban", "burley", "cigar", "cigarette", "classic tobacco", "sweet tobacco", "honey tobacco", "caramel tobacco", "dark tobacco", "bold tobacco"]
         },
         "desserts/bakery": {
-            "primary_keywords": ["dessert", "bakery", "sweet", "pastry"],
-            "secondary_keywords": ["custard", "vanilla", "cookie", "cake", "donut", "waffle", "cream", "creamy", "pudding", "flan", "caramel", "chocolate", "toffee"]
+            "primary_keywords": ["dessert", "bakery", "pastry"],
+            "secondary_keywords": ["custard", "cookie", "cake", "donut", "waffle", "cream", "creamy", "pudding", "flan", "ice cream"]
+        },
+        "candy/sweets": {
+            "primary_keywords": ["candy", "sweets", "gummy", "gummies", "sour"],
+            "secondary_keywords": [
+                # Gummy/Chewy
+                "gummy bear", "gummy worm", "jelly", "jelly bean", "haribo", "chewy",
+                # Sour Candy
+                "sour rainbow", "sour apple", "sour cherry", "sour patch", "tangy", "fizzy",
+                # Specific Candy Types
+                "blue razz", "razz", "bubblegum", "bubble gum", "cotton candy", "lollipop",
+                "skittles", "starburst", "jawbreaker", "sherbet", "rainbow",
+                # Sweet/Sugary
+                "sugar", "sugary", "toffee", "caramel", "butterscotch", "fudge", "chocolate"
+            ]
         },
         "beverages": {
-            "primary_keywords": ["beverage", "drink", "soda", "cola"],
-            "secondary_keywords": ["coffee", "espresso", "cappuccino", "latte", "mocha", "tea", "green tea", "cocktail", "mojito", "margarita", "energy drink"]
+            "primary_keywords": ["beverage", "drink"],
+            "secondary_keywords": [
+                # Soft Drinks
+                "soda", "cola", "lemonade", "energy drink", "fizz",
+                # Hot Drinks  
+                "coffee", "espresso", "cappuccino", "latte", "mocha", "tea", "green tea", "chai",
+                # Cocktails/Alcoholic Inspired
+                "cocktail", "mojito", "margarita", "pina colada", "daiquiri", "sangria", "rum"
+            ]
         },
         "nuts": {
             "primary_keywords": ["nut", "nuts", "nutty"],
@@ -116,7 +145,7 @@ class VapeTaxonomy:
         "patch": ["patch", "patches", "transdermal"],
         "paste": ["paste"],
         "shot": ["shot", "shots"],
-        "isolate": ["isolate", "crystal"],
+        "isolate": ["isolate", "crystal", "shatter", "wax", "crumble", "dab"],
         "edible": ["edible", "edibles", "food"],
         "beverage": ["beverage", "drink", "tea", "coffee"]
     }
@@ -125,7 +154,7 @@ class VapeTaxonomy:
     CBD_TYPE_KEYWORDS = {
         "full_spectrum": ["full spectrum", "full-spectrum"],
         "broad_spectrum": ["broad spectrum", "broad-spectrum"],
-        "isolate": ["isolate", "pure cbd", "cbd isolate"],
+        "isolate": ["isolate", "pure cbd", "cbd isolate", "shatter", "wax", "crumble", "dab"],
         "cbg": ["cbg", "cannabigerol"],
         "cbda": ["cbda", "cannabidiolic acid"]
     }
@@ -160,6 +189,39 @@ class VapeTaxonomy:
         if flavor_type in cls.FLAVOR_KEYWORDS:
             return cls.FLAVOR_KEYWORDS[flavor_type].get("secondary_keywords", [])
         return []
+    
+    @classmethod
+    def detect_flavor_types(cls, text: str) -> list:
+        """
+        Detect flavor types from a text string (e.g., variant option value).
+        
+        Args:
+            text: Text to analyze (e.g., "Strawberry Ice", "Mango Peach")
+            
+        Returns:
+            List of detected flavor type tags (e.g., ["fruity", "ice"])
+        """
+        if not text:
+            return []
+        
+        text_lower = text.lower()
+        detected = set()
+        
+        for flavor_type, config in cls.FLAVOR_KEYWORDS.items():
+            # Check primary keywords
+            for keyword in config.get("primary_keywords", []):
+                if keyword.lower() in text_lower:
+                    detected.add(flavor_type)
+                    break
+            
+            # Check secondary keywords (more specific)
+            if flavor_type not in detected:
+                for keyword in config.get("secondary_keywords", []):
+                    if keyword.lower() in text_lower:
+                        detected.add(flavor_type)
+                        break
+        
+        return list(detected)
     
     @classmethod
     def get_nicotine_strength_tag(cls, mg_value):

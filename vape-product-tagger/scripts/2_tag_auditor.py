@@ -166,15 +166,19 @@ class TagAuditor:
                         'expected': 'nicotine_strength category tag'
                     })
 
-            # Check for VG/PG ratio tags
-            ratio_tags = [tag for tag in final_tags if '/' in tag and any(x in tag for x in ['vg', 'pg'])]
-            if not ratio_tags and any(word in handle for word in ['vg', 'pg', 'ratio']):
-                accuracy_issues['missing_expected_tags'].append({
-                    'product': product['handle'],
-                    'category': 'e-liquid',
-                    'issue': 'Missing VG/PG ratio tag',
-                    'expected': 'vg_ratio category tag'
-                })
+            # Check for VG/PG ratio tags (skip if "various" ratio)
+            ratio_tags = [tag for tag in final_tags if '/' in tag and tag[0].isdigit()]
+            has_various_ratio = 'various' in handle or 'various' in product.get('title', '').lower()
+            if not ratio_tags and not has_various_ratio and any(word in handle for word in ['vg', 'pg']):
+                # Only flag if there's a specific ratio pattern in the handle
+                import re
+                if re.search(r'\d+vg|\d+pg', handle):
+                    accuracy_issues['missing_expected_tags'].append({
+                        'product': product['handle'],
+                        'category': 'e-liquid',
+                        'issue': 'Missing VG/PG ratio tag',
+                        'expected': 'vg_ratio category tag'
+                    })
 
     def _check_cbd_accuracy(self, products, accuracy_issues):
         """Check CBD specific tagging accuracy"""
@@ -193,7 +197,9 @@ class TagAuditor:
                 })
 
             # CBD products should have form tags (oil, capsule, etc.)
-            form_tags = [tag for tag in final_tags if tag in ['oil', 'capsule', 'topical', 'tincture', 'gummy']]
+            valid_form_tags = {'oil', 'capsule', 'topical', 'tincture', 'gummy', 'shot', 'patch', 
+                              'paste', 'isolate', 'edible', 'beverage', 'crumble', 'shatter', 'wax'}
+            form_tags = [tag for tag in final_tags if tag in valid_form_tags]
             if not form_tags:
                 accuracy_issues['missing_expected_tags'].append({
                     'product': product['handle'],

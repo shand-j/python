@@ -115,11 +115,28 @@ class ProductTagger:
             try:
                 if re.search(pattern, text):
                     return True
-                # Also try a plural form if single word and not ending with s
-                if ' ' not in k and not k.endswith('s'):
-                    plural_pat = r"(?<!\w)" + re.escape(k + 's') + r"(?!\w)"
+                
+                # Try plural forms - handle both single words and multi-word phrases
+                # For phrases like "nicotine pouch", try "nicotine pouches"
+                if not k.endswith('s'):
+                    # Standard plural: add 's'
+                    plural_k = k + 's'
+                    plural_pat = r"(?<!\w)" + re.escape(plural_k) + r"(?!\w)"
                     if re.search(plural_pat, text):
                         return True
+                    
+                    # Handle words ending in 'ch', 'sh', 'x', 's', 'z' -> add 'es'
+                    last_word = k.split()[-1] if ' ' in k else k
+                    if last_word.endswith(('ch', 'sh', 'x', 'z')):
+                        # Replace last word with 'es' plural
+                        if ' ' in k:
+                            plural_k = k.rsplit(' ', 1)[0] + ' ' + last_word + 'es'
+                        else:
+                            plural_k = k + 'es'
+                        plural_pat = r"(?<!\w)" + re.escape(plural_k) + r"(?!\w)"
+                        if re.search(plural_pat, text):
+                            return True
+                            
             except re.error:
                 # Fallback to safe substring search if regex fails for some reason
                 if k in text:
@@ -177,7 +194,13 @@ class ProductTagger:
         if not text:
             return ""
         
-        text = text.lower()
+        text_lower = text.lower()
+        
+        # Handle 100VG or 100PG (pure ratios)
+        if re.search(r'\b100\s*vg\b', text_lower):
+            return "100/0"
+        if re.search(r'\b100\s*pg\b', text_lower):
+            return "0/100"
         
         # Pattern to find ratios like "70/30", "70VG/30PG", "70vg 30pg", etc.
         patterns = [
@@ -187,7 +210,7 @@ class ProductTagger:
         ]
         
         for pattern in patterns:
-            match = re.search(pattern, text)
+            match = re.search(pattern, text_lower)
             if match:
                 try:
                     vg = int(match.group(1))
@@ -233,25 +256,58 @@ class ProductTagger:
     
     def tag_category(self, product_data: Dict) -> str:
         """
-        Detect product category from approved_tags.json categories
+        Detect product category using CSV data first, then keyword fallback.
+        Supports multi-category products (e.g., CBD + e-liquid).
+        
+        Priority:
+        1. Use 'Product Category' from CSV (Google taxonomy path)
+        2. Use 'Type' from CSV
+        3. Fallback to keyword detection from title/description
         
         Args:
             product_data: Product information dictionary
         
         Returns:
-            str: Primary category tag (or CBD for CBD products)
+            str: Primary category tag (CBD takes priority for dual-category products)
         """
-        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
-        
-        # Check each category in priority order (CBD first, then others)
-        # CBD products can have dual category (CBD + one other)
         detected_categories = []
+        
+        # Step 1: Check Product Category from CSV (Google taxonomy path)
+        product_category = str(product_data.get('product_category', '')).lower()
+        if product_category and product_category != 'nan':
+            # Map Google taxonomy EXACTLY to our categories (strict matching)
+            if 'e-liquid' in product_category:
+                detected_categories.append('e-liquid')
+            elif 'electronic cigarette' in product_category:
+                # "Electronic Cigarettes" in Google = disposables or devices
+                # Use keyword detection to disambiguate
+                pass
+            elif 'vaporizer' in product_category:
+                # Could be device, pod_system, etc. - use keyword detection
+                pass
+            
+            if 'cbd supplement' in product_category:
+                detected_categories.append('CBD')
+        
+        # Step 2: Check Type from CSV
+        product_type = str(product_data.get('type', '')).lower()
+        if product_type and product_type != 'nan':
+            if product_type == 'cbd products' and 'CBD' not in detected_categories:
+                detected_categories.append('CBD')
+        
+        # Step 3: Keyword detection from title/description/handle
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')} {product_data.get('handle', '')}".lower()
         
         for category, keywords in self.taxonomy.CATEGORY_KEYWORDS.items():
             if self._match_keywords(text, keywords):
-                detected_categories.append(category)
+                if category not in detected_categories:
+                    detected_categories.append(category)
         
-        # If CBD detected, return it (dual categories handled elsewhere)
+        # Handle multi-category: CBD takes priority but we track both
+        # Store all detected categories for potential future use
+        product_data['_detected_categories'] = detected_categories
+        
+        # If CBD detected, return it (primary category for tagging rules)
         if "CBD" in detected_categories:
             return "CBD"
         
@@ -260,6 +316,19 @@ class ProductTagger:
             return detected_categories[0]
         
         return ""
+    
+    def get_detected_categories(self, product_data: Dict) -> List[str]:
+        """
+        Get all detected categories for a product (supports multi-category).
+        Must call tag_category() first.
+        
+        Args:
+            product_data: Product information dictionary
+            
+        Returns:
+            List[str]: All detected categories
+        """
+        return product_data.get('_detected_categories', [])
     
     def tag_device_style(self, product_data: Dict, category: str = None) -> List[str]:
         """
@@ -604,7 +673,7 @@ class ProductTagger:
         Generate comprehensive tags for a product using new refactored pipeline
         
         Pipeline:
-        1. Detect category
+        1. Detect category (REQUIRED - no tagging without category)
         2. Run all applicable rule-based tagging methods based on category
         3. Invoke AI cascade if use_ai=True
         4. Validate all tags via TagValidator
@@ -621,9 +690,31 @@ class ProductTagger:
         """
         self.logger.info(f"Tagging product: {product_data.get('title', 'Unknown')}")
         
-        # Step 1: Detect category
+        # Step 1: Detect category (REQUIRED)
         category = self.tag_category(product_data)
         self.logger.debug(f"Detected category: {category}")
+        
+        # GATE: Category is required before tagging can proceed
+        if not category:
+            self.logger.warning(f"Could not determine category for: {product_data.get('title', 'Unknown')}")
+            # Return product with review flag and clear reason
+            enhanced_product = product_data.copy()
+            enhanced_product['tags'] = []
+            enhanced_product['category'] = ''
+            enhanced_product['needs_manual_review'] = True
+            enhanced_product['failure_reasons'] = ['Category detection failed - product does not match any known category keywords']
+            enhanced_product['confidence_scores'] = {
+                'rule_confidence': 0.0,
+                'ai_confidence': 0.0,
+                'combined_confidence': 0.0
+            }
+            enhanced_product['model_used'] = 'none'
+            enhanced_product['tag_breakdown'] = {
+                'rule_based_tags': [],
+                'ai_suggested_tags': [],
+                'secondary_flavors': []
+            }
+            return enhanced_product
         
         # Step 2: Run all applicable rule-based tagging methods
         rule_tags = []
@@ -701,7 +792,21 @@ class ProductTagger:
             except Exception as e:
                 self.logger.warning(f"AI cascade failed: {e}")
         
-        # Step 4: Combine and validate all tags
+        # Step 4: Filter AI tags - only keep those in approved schema
+        valid_ai_tags = []
+        invalid_ai_tags = []
+        for tag in ai_tags:
+            is_valid_tag, _ = self.tag_validator.validate_tag(tag, category)
+            if is_valid_tag:
+                valid_ai_tags.append(tag)
+            else:
+                invalid_ai_tags.append(tag)
+        
+        if invalid_ai_tags:
+            self.logger.debug(f"Filtered {len(invalid_ai_tags)} invalid AI tags: {invalid_ai_tags[:5]}")
+        ai_tags = valid_ai_tags
+        
+        # Step 5: Combine and validate all tags
         all_tags = list(set(rule_tags + ai_tags))
         
         is_valid, failure_reasons = self.tag_validator.validate_all_tags(all_tags, category)
@@ -731,9 +836,11 @@ class ProductTagger:
                 if recovered_valid:
                     self.logger.info("Third opinion recovery succeeded!")
                     final_tags = recovered_tags
-                    needs_manual_review = True  # Recovery always requires review
+                    # Only flag for review if confidence is below threshold
+                    recovery_confidence = recovery_result.get('confidence', 0.0)
+                    needs_manual_review = recovery_confidence < 0.7  # High confidence recovery = no review needed
                     failure_reasons = []
-                    ai_confidence = recovery_result.get('confidence', 0.0)
+                    ai_confidence = recovery_confidence
                     model_used = f"{model_used}+recovery"
                 else:
                     self.logger.warning("Third opinion recovery also failed validation")
@@ -743,7 +850,7 @@ class ProductTagger:
                 self.logger.error("Third opinion recovery returned no result")
                 needs_manual_review = True
         else:
-            # Check if AI flagged for manual review
+            # Validation passed - check if AI flagged for manual review
             if ai_result and ai_result.get('needs_manual_review', False):
                 needs_manual_review = True
         

@@ -8,6 +8,7 @@ Analyzes tagging accuracy and AI/rule tag contribution patterns
 import sqlite3
 import json
 import csv
+import re
 from pathlib import Path
 from collections import defaultdict, Counter
 import argparse
@@ -166,9 +167,9 @@ class TagAuditor:
                         'expected': 'nicotine_strength category tag'
                     })
 
-            # Check for VG/PG ratio tags
-            ratio_tags = [tag for tag in final_tags if '/' in tag and any(x in tag for x in ['vg', 'pg'])]
-            if not ratio_tags and any(word in handle for word in ['vg', 'pg', 'ratio']):
+            # Check for VG/PG ratio tags - ratios are in format "70/30", "50/50", etc.
+            ratio_tags = [tag for tag in final_tags if re.match(r'^\d+/\d+$', tag)]
+            if not ratio_tags and any(word in handle for word in ['vg', 'pg']) and 'various' not in handle:
                 accuracy_issues['missing_expected_tags'].append({
                     'product': product['handle'],
                     'category': 'e-liquid',
