@@ -9,6 +9,8 @@ Self-improving product tagging pipeline that:
 4. Iteratively improves until 90%+ accuracy
 5. Exports clean Shopify CSV
 
+Supports cleanup mode to re-process only untagged products and append to existing outputs.
+
 Designed for continuous operation on Vast.ai infrastructure.
 """
 
@@ -17,9 +19,10 @@ import sys
 import time
 import json
 import sqlite3
+import csv
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 # Add project root to path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -386,6 +389,273 @@ class AutonomousPipeline:
             self.logger.warning(f"\n⚠️  PIPELINE INCOMPLETE - Target accuracy not achieved after {self.max_iterations} iterations")
             return 1
 
+    def run_cleanup(self,
+                    untagged_csv: Path,
+                    clean_csv: Path,
+                    review_csv: Path,
+                    use_ai: bool = True,
+                    limit: int = None) -> int:
+        """
+        Run cleanup mode: process untagged products and append to existing outputs.
+        
+        This avoids re-processing the entire dataset when only a few products need fixing.
+        
+        Args:
+            untagged_csv: Path to previously untagged CSV
+            clean_csv: Path to existing clean CSV (will be appended)
+            review_csv: Path to existing review CSV (will be appended)
+            use_ai: Enable AI tagging
+            limit: Limit processing
+            
+        Returns:
+            Exit code (0 = success)
+        """
+        self.logger.info("="*80)
+        self.logger.info("🧹 CLEANUP MODE - Processing Previously Untagged Products")
+        self.logger.info("="*80)
+        
+        # Validate input files exist
+        if not untagged_csv.exists():
+            self.logger.error(f"Untagged CSV not found: {untagged_csv}")
+            return 1
+        
+        if not clean_csv.exists():
+            self.logger.warning(f"Clean CSV not found, will create new: {clean_csv}")
+        
+        if not review_csv.exists():
+            self.logger.warning(f"Review CSV not found, will create new: {review_csv}")
+        
+        # Import untagged products
+        self.logger.info(f"📥 Importing untagged products from: {untagged_csv}")
+        products = self.shopify_handler.import_from_csv(str(untagged_csv))
+        
+        if limit:
+            products = products[:limit]
+            self.logger.info(f"⚠️  Limited to {limit} products")
+        
+        total = len(products)
+        self.logger.info(f"✓ Processing {total} previously untagged products")
+        
+        # Tag products
+        tagged_products = []
+        start_time = time.time()
+        
+        for idx, product in enumerate(products, 1):
+            try:
+                enhanced = self.tagger.tag_product(product, use_ai=use_ai)
+                tagged_products.append(enhanced)
+                
+                # Progress
+                if idx % 10 == 0 or idx == total:
+                    elapsed = time.time() - start_time
+                    rate = idx / elapsed if elapsed > 0 else 0
+                    eta = (total - idx) / rate if rate > 0 else 0
+                    self.logger.info(
+                        f"Progress: {idx}/{total} ({idx/total*100:.1f}%) | "
+                        f"Rate: {rate:.1f}/s | ETA: {eta:.0f}s"
+                    )
+            
+            except Exception as e:
+                self.logger.error(f"Failed to tag {product.get('handle')}: {e}")
+                continue
+        
+        # Calculate metrics
+        metrics = self.calculate_accuracy_metrics(tagged_products)
+        
+        self.logger.info(f"✓ Tagging completed in {time.time() - start_time:.1f}s")
+        self.logger.info(f"Results: {metrics['clean_count']} clean, {metrics['review_count']} review, {metrics['untagged_count']} still untagged")
+        
+        # Append results to existing files
+        self.logger.info("="*80)
+        self.logger.info("📤 Appending Results to Existing Files")
+        self.logger.info("="*80)
+        
+        appended_stats = self._append_cleanup_results(
+            tagged_products, 
+            untagged_csv,
+            clean_csv,
+            review_csv
+        )
+        
+        # Final summary
+        self.logger.info("="*80)
+        self.logger.info("🎯 Cleanup Summary")
+        self.logger.info("="*80)
+        self.logger.info(f"Products processed: {total}")
+        self.logger.info(f"  → Now clean: {appended_stats['clean_appended']} (appended to {clean_csv.name})")
+        self.logger.info(f"  → Now review: {appended_stats['review_appended']} (appended to {review_csv.name})")
+        self.logger.info(f"  → Still untagged: {appended_stats['still_untagged']}")
+        
+        if appended_stats['still_untagged'] > 0:
+            self.logger.info(f"  → Updated untagged file: {appended_stats['untagged_path']}")
+        
+        return 0 if appended_stats['still_untagged'] == 0 else 1
+
+    def _append_cleanup_results(self,
+                                 tagged_products: List[Dict],
+                                 untagged_csv: Path,
+                                 clean_csv: Path,
+                                 review_csv: Path) -> Dict:
+        """
+        Append newly tagged products to existing clean/review files.
+        
+        Args:
+            tagged_products: List of newly tagged products
+            untagged_csv: Original untagged CSV (for structure)
+            clean_csv: Clean CSV to append to
+            review_csv: Review CSV to append to
+            
+        Returns:
+            Dict with stats about what was appended
+        """
+        import pandas as pd
+        from modules.taxonomy import VapeTaxonomy
+        import re
+        
+        stats = {
+            'clean_appended': 0,
+            'review_appended': 0,
+            'still_untagged': 0,
+            'untagged_path': None
+        }
+        
+        # Build lookup from tagged products
+        products_by_handle = {}
+        for product in tagged_products:
+            handle = product.get('handle', '')
+            if handle:
+                products_by_handle[handle] = product
+        
+        # Read original untagged CSV to get all variant rows
+        untagged_df = pd.read_csv(untagged_csv, low_memory=False, dtype={'Variant SKU': str, 'SKU': str})
+        self.logger.info(f"Untagged CSV has {len(untagged_df)} rows ({untagged_df['Handle'].nunique()} unique products)")
+        
+        # Get column structure from existing clean CSV (or untagged if clean doesn't exist)
+        if clean_csv.exists():
+            existing_clean_df = pd.read_csv(clean_csv, nrows=0)
+            all_columns = list(existing_clean_df.columns)
+        else:
+            all_columns = list(untagged_df.columns)
+        
+        # Ensure metadata columns exist
+        metadata_cols = [
+            'Needs Manual Review', 'AI Confidence', 'Model Used',
+            'Failure Reasons', 'Secondary Flavors', 'Category',
+            'Rule Based Tags', 'AI Suggested Tags'
+        ]
+        for col in metadata_cols:
+            if col not in all_columns:
+                all_columns.append(col)
+        
+        # Prepare rows for each category
+        clean_rows = []
+        review_rows = []
+        still_untagged_rows = []
+        
+        # Flavor and VG ratio tags for variant-level replacement
+        ALL_FLAVOR_TAGS = {'fruity', 'ice', 'tobacco', 'desserts/bakery', 'beverages', 
+                          'nuts', 'spices_&_herbs', 'cereal', 'unflavoured', 'candy/sweets'}
+        
+        for _, row in untagged_df.iterrows():
+            handle = row.get('Handle', '')
+            row_dict = row.to_dict()
+            
+            # Ensure all columns exist
+            for col in all_columns:
+                if col not in row_dict:
+                    row_dict[col] = ''
+            
+            if handle in products_by_handle:
+                product = products_by_handle[handle]
+                
+                # Get tags and metadata
+                base_tags = product.get('tags', [])
+                category = product.get('category', '')
+                needs_review = product.get('needs_manual_review', False)
+                confidence_scores = product.get('confidence_scores', {})
+                failure_reasons = product.get('failure_reasons', [])
+                tag_breakdown = product.get('tag_breakdown', {})
+                secondary_flavors = tag_breakdown.get('secondary_flavors', [])
+                
+                # Apply variant-level flavor detection if applicable
+                if category in ['e-liquid', 'disposable', 'pod', 'nicotine_pouches']:
+                    option1_value = str(row.get('Option1 Value', '')).strip()
+                    if option1_value and option1_value.lower() not in ['default title', 'nan', '']:
+                        variant_flavors = VapeTaxonomy.detect_flavor_types(option1_value)
+                        if variant_flavors:
+                            variant_tags = [t for t in base_tags if t not in ALL_FLAVOR_TAGS]
+                            variant_tags.extend(variant_flavors)
+                            base_tags = list(set(variant_tags))
+                
+                # Apply tags
+                row_dict['Tags'] = ', '.join(base_tags) if base_tags else ''
+                row_dict['Category'] = category
+                row_dict['Needs Manual Review'] = 'YES' if needs_review else 'NO'
+                row_dict['AI Confidence'] = confidence_scores.get('ai_confidence', 0.0)
+                row_dict['Model Used'] = product.get('model_used', 'rule-based')
+                row_dict['Failure Reasons'] = '; '.join(failure_reasons) if failure_reasons else ''
+                row_dict['Secondary Flavors'] = ', '.join(secondary_flavors) if secondary_flavors else ''
+                row_dict['Rule Based Tags'] = ', '.join(tag_breakdown.get('rule_based_tags', []))
+                row_dict['AI Suggested Tags'] = ', '.join(tag_breakdown.get('ai_suggested_tags', []))
+                
+                # Categorize
+                if not base_tags:
+                    still_untagged_rows.append(row_dict)
+                elif needs_review:
+                    review_rows.append(row_dict)
+                else:
+                    clean_rows.append(row_dict)
+            else:
+                # Product not processed - keep as untagged
+                still_untagged_rows.append(row_dict)
+        
+        # Append to clean CSV
+        if clean_rows:
+            clean_df = pd.DataFrame(clean_rows)
+            # Reorder columns to match existing
+            clean_df = clean_df.reindex(columns=all_columns, fill_value='')
+            
+            if clean_csv.exists():
+                clean_df.to_csv(clean_csv, mode='a', header=False, index=False)
+                self.logger.info(f"✅ Appended {len(clean_rows)} rows to {clean_csv}")
+            else:
+                clean_df.to_csv(clean_csv, index=False)
+                self.logger.info(f"✅ Created {clean_csv} with {len(clean_rows)} rows")
+            
+            stats['clean_appended'] = len(clean_rows)
+        
+        # Append to review CSV
+        if review_rows:
+            review_df = pd.DataFrame(review_rows)
+            review_df = review_df.reindex(columns=all_columns, fill_value='')
+            
+            if review_csv.exists():
+                review_df.to_csv(review_csv, mode='a', header=False, index=False)
+                self.logger.info(f"⚠️  Appended {len(review_rows)} rows to {review_csv}")
+            else:
+                review_df.to_csv(review_csv, index=False)
+                self.logger.info(f"⚠️  Created {review_csv} with {len(review_rows)} rows")
+            
+            stats['review_appended'] = len(review_rows)
+        
+        # Update untagged CSV with remaining untagged
+        if still_untagged_rows:
+            untagged_df_new = pd.DataFrame(still_untagged_rows)
+            untagged_df_new = untagged_df_new.reindex(columns=all_columns, fill_value='')
+            
+            # Write to new untagged file (overwrite)
+            new_untagged_path = untagged_csv.parent / f"{untagged_csv.stem}_remaining{untagged_csv.suffix}"
+            untagged_df_new.to_csv(new_untagged_path, index=False)
+            self.logger.info(f"❌ {len(still_untagged_rows)} rows still untagged → {new_untagged_path}")
+            
+            stats['still_untagged'] = len(still_untagged_rows)
+            stats['untagged_path'] = str(new_untagged_path)
+        else:
+            self.logger.info("🎉 All previously untagged products now tagged!")
+            stats['still_untagged'] = 0
+        
+        return stats
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -407,6 +677,12 @@ Examples:
 
   # Verbose logging
   python scripts/autonomous_pipeline.py --input products.csv --verbose
+
+  # CLEANUP MODE - Process previously untagged products and append to existing outputs
+  python scripts/autonomous_pipeline.py --cleanup \\
+    --input data/output/autonomous/20251212_193757_untagged.csv \\
+    --append-clean data/output/autonomous/20251212_193757_tagged_clean.csv \\
+    --append-review data/output/autonomous/20251212_193757_tagged_review.csv
         """
     )
     
@@ -429,6 +705,14 @@ Examples:
     parser.add_argument('--verbose', '-v', action='store_true',
                        help='Enable verbose logging')
     
+    # Cleanup mode arguments
+    parser.add_argument('--cleanup', action='store_true',
+                       help='Run in cleanup mode: process untagged and append to existing outputs')
+    parser.add_argument('--append-clean',
+                       help='Path to existing tagged_clean.csv to append to (cleanup mode)')
+    parser.add_argument('--append-review',
+                       help='Path to existing tagged_review.csv to append to (cleanup mode)')
+    
     args = parser.parse_args()
     
     try:
@@ -445,14 +729,29 @@ Examples:
         # Initialize components
         use_ai = pipeline.initialize(use_ai=not args.no_ai)
         
-        # Run autonomous pipeline
-        exit_code = pipeline.run_autonomous(
-            input_csv=Path(args.input),
-            output_dir=Path(args.output),
-            use_ai=use_ai,
-            limit=args.limit,
-            inventory_csv=Path(args.inventory) if args.inventory else None
-        )
+        # Check for cleanup mode
+        if args.cleanup:
+            # Validate cleanup arguments
+            if not args.append_clean or not args.append_review:
+                parser.error("Cleanup mode requires --append-clean and --append-review arguments")
+            
+            # Run cleanup mode
+            exit_code = pipeline.run_cleanup(
+                untagged_csv=Path(args.input),
+                clean_csv=Path(args.append_clean),
+                review_csv=Path(args.append_review),
+                use_ai=use_ai,
+                limit=args.limit
+            )
+        else:
+            # Run autonomous pipeline
+            exit_code = pipeline.run_autonomous(
+                input_csv=Path(args.input),
+                output_dir=Path(args.output),
+                use_ai=use_ai,
+                limit=args.limit,
+                inventory_csv=Path(args.inventory) if args.inventory else None
+            )
         
         sys.exit(exit_code)
         

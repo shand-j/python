@@ -11,9 +11,14 @@ class VapeTaxonomy:
     # ORDER MATTERS: More specific categories should come before broader ones
     CATEGORY_KEYWORDS = {
         "CBD": ["cbd", "cannabidiol", "hemp", "cbg", "cbn"],  # CBD first to prioritize
+        "supplement": [
+            "caffeine pouch", "caffeine pouches", "energy pouch", "energy pouches",
+            "mushroom", "ashwagandha", "nootropic", "vitamin", "probiotic",
+            "lions mane", "lion's mane", "shroom", "adaptogen"
+        ],  # Supplements before nicotine_pouches to catch caffeine pouches
         "nicotine_pouches": [
             "nicotine pouch", "nic pouch", "snus", "nicotine candy", "nicotine lozenge",
-            "energy pouches", "spearmint pouches", "mint pouches", "zero pouches"
+            "spearmint pouches", "mint pouches", "zero pouches"
         ],  # Before "pouch" alone
         "e-liquid": [
             "e-liquid", "eliquid", "e liquid", "vape juice", "vape liquid", "ejuice",
@@ -27,7 +32,11 @@ class VapeTaxonomy:
         "tank": ["tank", "vape tank", "clearomizer", "atomizer tank", "sub ohm tank", "sub-ohm tank"],
         "coil": ["coil", "replacement coil", "coil head", "atomizer head", "mesh coil"],
         "pod": ["pod", "replacement pod", "prefilled pod", "cartridge", "refillable pod"],
-        "accessory": ["accessory", "accessories", "vape accessory", "drip tip", "battery", "charger"]
+        "accessory": [
+            "accessory", "accessories", "vape accessory", "drip tip", "battery", "charger",
+            "replacement glass", "glass tube", "bubble glass", "filter", "mouthpiece",
+            "o-ring", "o ring", "silicone sleeve", "vape band", "tool kit"
+        ]
     }
     
     # Device Style Keywords (maps to device_style tags in approved_tags.json)
@@ -176,6 +185,24 @@ class VapeTaxonomy:
         "mouth-to-lung": ["mtl", "mouth to lung", "mouth-to-lung"],
         "direct-to-lung": ["dtl", "direct to lung", "direct-to-lung", "sub ohm", "subohm"],
         "restricted-direct-to-lung": ["rdtl", "restricted dtl", "restricted direct to lung", "restricted-direct-to-lung"]
+    }
+    
+    # Coil Ohm Keywords (approved_tags.json: coil_ohm)
+    COIL_OHM_KEYWORDS = {
+        "0.1ohm": ["0.1ohm", "0.1 ohm", "0.1Ω"],
+        "0.15ohm": ["0.15ohm", "0.15 ohm", "0.15Ω"],
+        "0.2ohm": ["0.2ohm", "0.2 ohm", "0.2Ω"],
+        "0.3ohm": ["0.3ohm", "0.3 ohm", "0.3Ω"],
+        "0.4ohm": ["0.4ohm", "0.4 ohm", "0.4Ω"],
+        "0.5ohm": ["0.5ohm", "0.5 ohm", "0.5Ω"],
+        "0.6ohm": ["0.6ohm", "0.6 ohm", "0.6Ω"],
+        "0.7ohm": ["0.7ohm", "0.7 ohm", "0.7Ω"],
+        "0.8ohm": ["0.8ohm", "0.8 ohm", "0.8Ω"],
+        "1.0ohm": ["1.0ohm", "1.0 ohm", "1.0Ω", "1ohm", "1 ohm", "1Ω"],
+        "1.2ohm": ["1.2ohm", "1.2 ohm", "1.2Ω"],
+        "1.5ohm": ["1.5ohm", "1.5 ohm", "1.5Ω"],
+        "1.8ohm": ["1.8ohm", "1.8 ohm", "1.8Ω"],
+        "2.0ohm": ["2.0ohm", "2.0 ohm", "2.0Ω", "2ohm", "2 ohm", "2Ω"]
     }
     
     @classmethod

@@ -226,6 +226,28 @@ class ProductTagger:
                 except (ValueError, IndexError):
                     continue
         
+        # Handle standalone VG percentages like "70VG" (infer PG from remainder)
+        standalone_vg = re.search(r'\b(\d+)\s*vg\b', text_lower)
+        if standalone_vg:
+            try:
+                vg = int(standalone_vg.group(1))
+                if 0 < vg <= 100:
+                    pg = 100 - vg
+                    return f"{vg}/{pg}"
+            except ValueError:
+                pass
+        
+        # Handle standalone PG percentages like "60PG" (infer VG from remainder)
+        standalone_pg = re.search(r'\b(\d+)\s*pg\b', text_lower)
+        if standalone_pg:
+            try:
+                pg = int(standalone_pg.group(1))
+                if 0 < pg <= 100:
+                    vg = 100 - pg
+                    return f"{vg}/{pg}"
+            except ValueError:
+                pass
+        
         return ""
     
     def _extract_secondary_flavors(self, text: str, primary_flavor_types: List[str]) -> List[str]:
@@ -297,6 +319,19 @@ class ProductTagger:
         
         # Step 3: Keyword detection from title/description/handle
         text = f"{product_data.get('title', '')} {product_data.get('description', '')} {product_data.get('handle', '')}".lower()
+        
+        # Check for accessory-specific patterns first (these should override generic category matches)
+        # E.g., "replacement glass for tank" should be accessory, not tank
+        accessory_override_patterns = [
+            "replacement glass", "bubble glass", "glass tube", "replacement tube",
+            "o-ring", "o ring", "silicone band", "vape band", "drip tip",
+            "filter", "mouthpiece filter", "chamber filter"
+        ]
+        for pattern in accessory_override_patterns:
+            if pattern in text:
+                if "accessory" not in detected_categories:
+                    detected_categories.insert(0, "accessory")  # Insert at beginning for priority
+                break
         
         for category, keywords in self.taxonomy.CATEGORY_KEYWORDS.items():
             if self._match_keywords(text, keywords):
@@ -619,6 +654,30 @@ class ProductTagger:
         
         return list(set(tags))
     
+    def tag_coil_ohm(self, product_data: Dict, category: str = None) -> List[str]:
+        """
+        Tag coil resistance (applies_to: coil, device, pod_system)
+        
+        Args:
+            product_data: Product information dictionary
+            category: Product category (for validation)
+        
+        Returns:
+            List[str]: Coil ohm resistance tags
+        """
+        # Check applies_to rule
+        if category and category not in ["coil", "device", "pod_system"]:
+            return []
+        
+        tags = []
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        for ohm_tag, keywords in self.taxonomy.COIL_OHM_KEYWORDS.items():
+            if self._match_keywords(text, keywords):
+                tags.append(ohm_tag)
+        
+        return list(set(tags))
+    
     def tag_flavors(self, product_data: Dict, category: str = None) -> Tuple[List[str], List[str]]:
         """
         Tag flavors (applies_to: e-liquid, disposable, nicotine_pouches, pod)
@@ -732,6 +791,10 @@ class ProductTagger:
         # Pod-specific tags
         if category == "pod":
             rule_tags.extend(self.tag_pod_type(product_data, category))
+        
+        # Coil-specific tags (coil ohm resistance)
+        if category in ["coil", "device", "pod_system"]:
+            rule_tags.extend(self.tag_coil_ohm(product_data, category))
         
         # E-liquid tags
         if category == "e-liquid":

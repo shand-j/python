@@ -1,0 +1,26 @@
+📥 Loading untagged: data/output/autonomous/20251212_193757_untagged.csv
+   135 rows, 93 unique products
+📥 Loading clean: data/output/autonomous/20251212_193757_tagged_clean.csv
+   2563 unique products
+📥 Loading review: data/output/autonomous/20251212_193757_tagged_review.csv
+   39 unique products
+
+📊 Analysis:
+   Products in untagged: 93
+   Products now tagged: 48
+   Products still untagged: 45
+
+🗑️  Removing 48 products:
+      - nebula-titan-chamber-filter
+      - voopoo-tpp-x-replacement-pod-2ml
+      - freemax-gx-p-mesh-replacement-coil-0-8ω-1-0ω
+      - smok-t-air-replacement-glass-large
+      - vessel-rover-case-navy
+      - smok-mini-v2-a2-coil-0-2-ohm
+      - freemax-maxus-mx3-replacement-mesh-coil-0-15ω
+      - voopoo-tpp-replacement-coils
+      - nebula-titan-mouthpiece-filter
+      - smok-vape-pen-mesh-coil-0-15-ohm
+      ... and 38 more
+
+⚠️  DRY RUN - no files modified

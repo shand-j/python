@@ -154,6 +154,7 @@ class TagAuditor:
         for product in products:
             final_tags = set(product['final_tags'])
             handle = product['handle'].lower()
+            title = product.get('title', '').lower()
 
             # E-liquids should typically have nicotine strength or be 0mg
             nic_tags = [tag for tag in final_tags if 'mg' in tag and tag != 'cbd' and not tag.endswith('ml')]
@@ -167,15 +168,21 @@ class TagAuditor:
                         'expected': 'nicotine_strength category tag'
                     })
 
-            # Check for VG/PG ratio tags - ratios are in format "70/30", "50/50", etc.
-            ratio_tags = [tag for tag in final_tags if re.match(r'^\d+/\d+$', tag)]
-            if not ratio_tags and any(word in handle for word in ['vg', 'pg']) and 'various' not in handle:
-                accuracy_issues['missing_expected_tags'].append({
-                    'product': product['handle'],
-                    'category': 'e-liquid',
-                    'issue': 'Missing VG/PG ratio tag',
-                    'expected': 'vg_ratio category tag'
-                })
+            # Check for VG/PG ratio tags (skip if "various" ratio or device product)
+            ratio_tags = [tag for tag in final_tags if '/' in tag and tag[0].isdigit()]
+            has_various_ratio = 'various' in handle or 'various' in title
+            # Skip products that are actually pod kits/devices categorized as e-liquid
+            is_device_product = any(word in handle or word in title for word in ['pod kit', 'pod vape', 'refill pod', 'device'])
+            
+            if not ratio_tags and not has_various_ratio and not is_device_product and any(word in handle for word in ['vg', 'pg']):
+                # Only flag if there's a specific ratio pattern in the handle
+                if re.search(r'\d+vg|\d+pg', handle):
+                    accuracy_issues['missing_expected_tags'].append({
+                        'product': product['handle'],
+                        'category': 'e-liquid',
+                        'issue': 'Missing VG/PG ratio tag',
+                        'expected': 'vg_ratio category tag'
+                    })
 
     def _check_cbd_accuracy(self, products, accuracy_issues):
         """Check CBD specific tagging accuracy"""
