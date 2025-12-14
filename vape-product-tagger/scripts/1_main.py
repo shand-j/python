@@ -996,8 +996,13 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             rule_tags.append('nic_salt')
         
         # Detect if this is a nic shot (for shortfill exclusion logic later)
-        # Check handle/title primarily - avoid false positives from "add nic shots" in description
-        is_nic_shot = ('nic' in handle_title and 'shot' in handle_title) or 'nicshot' in handle_title or 'nic-shot' in handle_title
+        # Use word boundary matching to distinguish "nic shot" products from descriptions mentioning shots
+        # Priority: handle/title for reliability, but check full text with word boundaries
+        is_nic_shot = (
+            re.search(r'\bnic\s*shot\b', handle_title, re.IGNORECASE) or
+            re.search(r'\bnicshot\b', handle_title, re.IGNORECASE) or
+            re.search(r'\bnic-shot\b', handle_title, re.IGNORECASE)
+        )
         
         # CBD strength detection - include hemp products (hemp oil = CBD product)
         is_cbd_product = 'cbd' in text or 'cbg' in text or ('hemp' in text and ('oil' in text or 'seed' in text or 'extract' in text))
@@ -1008,6 +1013,7 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             cbd_form_detected = False
             
             # Priority 1: Check handle/title only first
+            # Use elif chain to prevent double-tagging - forms are mutually exclusive
             if any(word in handle_title for word in ['capsule', 'cap', 'softgel', 'soft gel', 'soft-gel', 'gel cap', 'gelcap']):
                 rule_tags.append('capsule')
                 cbd_form_detected = True
@@ -1018,11 +1024,15 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
                 rule_tags.append('topical')
                 cbd_form_detected = True
             # Check for oil in handle/title specifically (common CBD form)
-            # Oil should come BEFORE tincture check since "oil" is more specific
+            # Oil is more specific than tincture, so check it first
             elif 'oil' in handle_title:
                 rule_tags.append('oil')
                 cbd_form_detected = True
-            elif any(word in handle_title for word in ['tincture', 'drop', 'drops', 'sublingual', 'extract']):
+            elif any(word in handle_title for word in ['drop', 'drops', 'sublingual']):
+                # Drops/sublingual indicate tincture (exclude 'extract' to avoid overlapping with 'oil extract')
+                rule_tags.append('tincture')
+                cbd_form_detected = True
+            elif 'tincture' in handle_title:
                 rule_tags.append('tincture')
                 cbd_form_detected = True
             elif any(word in handle_title for word in ['crumble']):
@@ -1196,20 +1206,20 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         elif not ratio_matches and 'vg' in text and 'pg' not in text:
             rule_tags.append('100/0')
         
-        # Shortfill detection - EITHER explicit "shortfill" mention OR large (50ml+) zero-nicotine liquid
-        # Shortfills are larger bottles (60ml, 120ml) filled with 50ml/100ml to allow room for nic shots
-        # EXCLUDE nic shots even if they mention "shortfill" (they're added TO shortfills, not shortfills themselves)
-        bottle_sizes = re.findall(r'(\d+)\s*ml', text, re.IGNORECASE)
-        is_shortfill_size = any(int(size) >= 50 for size in bottle_sizes if size.isdigit())
-        has_small_bottle = any(int(size) <= 20 for size in bottle_sizes if size.isdigit())
-        
-        # Case 1: Explicit "shortfill" mention
-        if 'shortfill' in text and not is_nic_shot:
-            if is_shortfill_size or (not bottle_sizes and not has_small_bottle):
+        # Shortfill detection - consolidated logic
+        # Shortfills are larger bottles (50ml+) filled partially to allow room for nic shots
+        # EXCLUDE nic shots even if they mention "shortfill" (they're added TO shortfills)
+        if not is_nic_shot:
+            bottle_sizes = re.findall(r'(\d+)\s*ml', text, re.IGNORECASE)
+            is_shortfill_size = any(int(size) >= 50 for size in bottle_sizes if size.isdigit())
+            has_small_bottle = any(int(size) <= 20 for size in bottle_sizes if size.isdigit())
+            
+            # Tag as shortfill if either:
+            # 1. Explicit "shortfill" mention with appropriate size (50ml+ or no size detected)
+            # 2. Large bottle (50ml+) with zero nicotine (implicit shortfill)
+            if ('shortfill' in text and (is_shortfill_size or (not bottle_sizes and not has_small_bottle))) or \
+               (is_shortfill_size and zero_nic_detected):
                 rule_tags.append('shortfill')
-        # Case 2: Large bottle (50ml+) with zero nicotine (implicit shortfill)
-        elif is_shortfill_size and zero_nic_detected and not is_nic_shot:
-            rule_tags.append('shortfill')
         
         # Basic product type (skip if already have a category from handle/title)
         if forced_category is None:
