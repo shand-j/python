@@ -683,12 +683,150 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             self.logger.warning(f"Ollama direct call to {model_id} failed: {e}")
             return None
     
-    def get_rule_based_tags(self, handle, title, description=""):
-        """Extract obvious tags using rules"""
+    def _normalize_tag(self, tag: str) -> str:
+        """Normalize AI-suggested tag to standard format
+        
+        Args:
+            tag: Tag string from AI (e.g. 'Pen Style', '20 mg', 'Ice')
+        
+        Returns:
+            str: Normalized tag (e.g. 'pen_style', '20mg', 'ice')
+        """
+        if not tag:
+            return ""
+        
+        # Convert to lowercase
+        normalized = tag.lower().strip()
+        
+        # Remove spaces around mg/ml units FIRST (before replacing spaces with underscores)
+        normalized = re.sub(r'(\d+(?:\.\d+)?)\s*(mg|ml|ohm)', r'\1\2', normalized)
+        
+        # Remove extra spaces and replace with underscores
+        normalized = re.sub(r'\s+', '_', normalized)
+        
+        # Store in normalized_map if not already present
+        if not hasattr(self, 'normalized_map'):
+            self.normalized_map = {}
+        self.normalized_map[normalized] = normalized
+        
+        return normalized
+    
+    def _filter_and_map_ai_tags(self, suggested_tags, forced_category=None, device_evidence=False):
+        """Filter and map AI-suggested tags to approved vocabulary
+        
+        Args:
+            suggested_tags: List of AI-suggested tags
+            forced_category: Forced category from rule-based detection
+            device_evidence: Whether there's explicit device evidence in text
+        
+        Returns:
+            list: Filtered and mapped tags
+        """
+        mapped_tags = []
+        
+        for tag in suggested_tags:
+            # Normalize the tag
+            normalized = self._normalize_tag(tag)
+            
+            # Check if normalized tag is in approved tags OR is a valid range-based tag
+            is_valid = normalized in self.all_approved_tags
+            
+            # For range-based tags (nicotine_strength, cbd_strength, capacity, bottle_size)
+            # validate against their ranges
+            if not is_valid:
+                # Check mg tags - could be nicotine (0-20mg) OR CBD (0-50000mg)
+                if re.match(r'^\d+(\.\d+)?mg$', normalized):
+                    try:
+                        value = float(normalized[:-2])  # Remove 'mg'
+                        
+                        # Try nicotine strength first (0-20mg)
+                        nicotine_config = self.approved_tags.get('nicotine_strength', {})
+                        range_config = nicotine_config.get('range', {})
+                        if range_config:
+                            min_val = range_config.get('min', 0)
+                            max_val = range_config.get('max', 20)
+                            if min_val <= value <= max_val:
+                                is_valid = True
+                        
+                        # If not valid for nicotine, try CBD strength (0-50000mg)
+                        if not is_valid:
+                            cbd_config = self.approved_tags.get('cbd_strength', {})
+                            range_config = cbd_config.get('range', {})
+                            if range_config:
+                                min_val = range_config.get('min', 0)
+                                max_val = range_config.get('max', 50000)
+                                if min_val <= value <= max_val:
+                                    is_valid = True
+                    except ValueError:
+                        pass
+                
+                # Check capacity (ml)
+                if not is_valid and re.match(r'^\d+(\.\d+)?ml$', normalized):
+                    try:
+                        value = float(normalized[:-2])
+                        capacity_config = self.approved_tags.get('capacity', {})
+                        range_config = capacity_config.get('range', {})
+                        if range_config:
+                            min_val = range_config.get('min', 0)
+                            max_val = range_config.get('max', 10)
+                            if min_val <= value <= max_val:
+                                is_valid = True
+                    except ValueError:
+                        pass
+                
+                # Check bottle_size (ml)
+                if not is_valid and re.match(r'^\d+(\.\d+)?ml$', normalized):
+                    try:
+                        value = float(normalized[:-2])
+                        bottle_config = self.approved_tags.get('bottle_size', {})
+                        range_config = bottle_config.get('range', {})
+                        if range_config:
+                            min_val = range_config.get('min', 0)
+                            max_val = range_config.get('max', 120)
+                            if min_val <= value <= max_val:
+                                is_valid = True
+                    except ValueError:
+                        pass
+            
+            if is_valid:
+                # Filter device-related tags for CBD products unless there's evidence
+                if forced_category == 'CBD' and not device_evidence:
+                    # Device style/form tags should not be applied to CBD products
+                    device_tags = ['pen_style', 'pod_style', 'box_style', 'stick_style', 'device', 
+                                  'disposable', 'pod_system', 'box_mod']
+                    if normalized in device_tags:
+                        continue
+                
+                mapped_tags.append(normalized)
+        
+        return mapped_tags
+    
+    def get_rule_based_tags(self, handle, title, description="", product_type=None):
+        """Extract obvious tags using rules
+        
+        Args:
+            handle: Product handle/slug
+            title: Product title
+            description: Product description
+            product_type: Optional Type column hint (e.g. 'CBD', 'Vaping Products')
+        
+        Returns:
+            tuple: (rule_tags, forced_category)
+        """
         
         text = f"{handle} {title} {description}".lower()
         handle_title = f"{handle} {title}".lower()
         rule_tags = []
+        
+        # Use product_type hint if provided
+        if product_type:
+            product_type_lower = product_type.lower()
+            # If Type column says 'CBD', force CBD category
+            if 'cbd' in product_type_lower:
+                if 'CBD' not in rule_tags:
+                    rule_tags.append('CBD')
+                # Early detection of CBD allows strength extraction later
+            # If Type says Vaping/Smoking, allow device style detection even without 'style' keyword
         
         # Prioritize handle/title for category determination
         # USB/Charging cable detection - check first (before generic 'charger')
@@ -813,38 +951,53 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             # Add more as needed
         
         # Nicotine strength detection (range-based)
-        mg_matches = re.findall(r'(\d+(?:\.\d+)?)mg', text)
-        if mg_matches:
-            # Skip if CBD/CBG
-            if 'cbd' in text or 'cbg' in text:
-                pass
-            else:
-                nicotine_config = self.approved_tags.get('nicotine_strength', {})
-                range_config = nicotine_config.get('range')
-                if range_config:
-                    min_val = range_config.get('min', 0)
-                    max_val = range_config.get('max', 20)
-                    unit = range_config.get('unit', 'mg')
-                    for mg in mg_matches:
-                        try:
-                            mg_value = float(mg)
-                            if min_val <= mg_value <= max_val:
-                                rule_tags.append(f"{mg}{unit}")
-                                break
-                        except ValueError:
-                            continue
+        # First check for explicit zero nicotine indicators (use word boundaries for accuracy)
+        zero_nic_detected = False
+        if any(phrase in text for phrase in ['zero nicotine', 'zero nic', 'nicotine free', 'nicotine-free', 'nic free', 'nic-free']):
+            if 'cbd' not in text and 'cbg' not in text:  # Skip for CBD products
+                rule_tags.append('0mg')
+                zero_nic_detected = True
+        # Check for explicit 0mg with word boundary (not part of 20mg, 5000, etc.)
+        elif re.search(r'\b0\s*mg\b', text, re.IGNORECASE):
+            if 'cbd' not in text and 'cbg' not in text:
+                rule_tags.append('0mg')
+                zero_nic_detected = True
+        
+        # Then check for numeric mg values (only if not already detected as zero)
+        if not zero_nic_detected:
+            mg_matches = re.findall(r'(\d+(?:\.\d+)?)mg', text)
+            if mg_matches:
+                # Skip if CBD/CBG
+                if 'cbd' in text or 'cbg' in text:
+                    pass
                 else:
-                    # Fallback to tag-based validation (legacy)
-                    strengths = [f"{m}mg" for m in mg_matches if f"{m}mg" in self.approved_tags.get('nicotine_strength', {}).get('tags', [])]
-                    if strengths:
-                        rule_tags.append(strengths[0])  # Take first valid strength
+                    nicotine_config = self.approved_tags.get('nicotine_strength', {})
+                    range_config = nicotine_config.get('range')
+                    if range_config:
+                        min_val = range_config.get('min', 0)
+                        max_val = range_config.get('max', 20)
+                        unit = range_config.get('unit', 'mg')
+                        for mg in mg_matches:
+                            try:
+                                mg_value = float(mg)
+                                if min_val <= mg_value <= max_val:
+                                    rule_tags.append(f"{mg}{unit}")
+                                    break
+                            except ValueError:
+                                continue
+                    else:
+                        # Fallback to tag-based validation (legacy)
+                        strengths = [f"{m}mg" for m in mg_matches if f"{m}mg" in self.approved_tags.get('nicotine_strength', {}).get('tags', [])]
+                        if strengths:
+                            rule_tags.append(strengths[0])  # Take first valid strength
         
         # Nicotine type detection
         if 'nic' in text and 'salt' in text:
             rule_tags.append('nic_salt')
         
         # Detect if this is a nic shot (for shortfill exclusion logic later)
-        is_nic_shot = ('nic' in text and 'shot' in text) or 'nicshot' in text or 'nic-shot' in text
+        # Check handle/title primarily - avoid false positives from "add nic shots" in description
+        is_nic_shot = ('nic' in handle_title and 'shot' in handle_title) or 'nicshot' in handle_title or 'nic-shot' in handle_title
         
         # CBD strength detection - include hemp products (hemp oil = CBD product)
         is_cbd_product = 'cbd' in text or 'cbg' in text or ('hemp' in text and ('oil' in text or 'seed' in text or 'extract' in text))
@@ -863,6 +1016,11 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
                 cbd_form_detected = True
             elif any(word in handle_title for word in ['topical', 'cream', 'balm', 'salve', 'lotion', 'roll-on', 'roller']):
                 rule_tags.append('topical')
+                cbd_form_detected = True
+            # Check for oil in handle/title specifically (common CBD form)
+            # Oil should come BEFORE tincture check since "oil" is more specific
+            elif 'oil' in handle_title:
+                rule_tags.append('oil')
                 cbd_form_detected = True
             elif any(word in handle_title for word in ['tincture', 'drop', 'drops', 'sublingual', 'extract']):
                 rule_tags.append('tincture')
@@ -893,10 +1051,6 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
                 cbd_form_detected = True
             elif any(word in handle_title for word in ['flower', 'bud', 'hemp flower', 'pre-roll', 'preroll']):
                 rule_tags.append('flower')
-                cbd_form_detected = True
-            # Check for oil in handle/title specifically (common CBD form)
-            elif 'oil' in handle_title:
-                rule_tags.append('tincture')
                 cbd_form_detected = True
             
             # Priority 2: If no form found in handle/title, check full text (including description)
@@ -1042,18 +1196,20 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         elif not ratio_matches and 'vg' in text and 'pg' not in text:
             rule_tags.append('100/0')
         
-        # Shortfill detection - must have explicit "shortfill" mention AND be 50-100ml
+        # Shortfill detection - EITHER explicit "shortfill" mention OR large (50ml+) zero-nicotine liquid
         # Shortfills are larger bottles (60ml, 120ml) filled with 50ml/100ml to allow room for nic shots
         # EXCLUDE nic shots even if they mention "shortfill" (they're added TO shortfills, not shortfills themselves)
+        bottle_sizes = re.findall(r'(\d+)\s*ml', text, re.IGNORECASE)
+        is_shortfill_size = any(int(size) >= 50 for size in bottle_sizes if size.isdigit())
+        has_small_bottle = any(int(size) <= 20 for size in bottle_sizes if size.isdigit())
+        
+        # Case 1: Explicit "shortfill" mention
         if 'shortfill' in text and not is_nic_shot:
-            # Verify it's actually a shortfill bottle size (50ml, 100ml common)
-            bottle_sizes = re.findall(r'(\d+)\s*ml', text, re.IGNORECASE)
-            is_shortfill_size = any(int(size) >= 50 for size in bottle_sizes if size.isdigit())
-            # Only apply shortfill tag if bottle is 50ml+ OR no size detected (benefit of doubt)
-            # If 10ml is explicitly detected, do NOT tag as shortfill
-            has_small_bottle = any(int(size) <= 20 for size in bottle_sizes if size.isdigit())
             if is_shortfill_size or (not bottle_sizes and not has_small_bottle):
                 rule_tags.append('shortfill')
+        # Case 2: Large bottle (50ml+) with zero nicotine (implicit shortfill)
+        elif is_shortfill_size and zero_nic_detected and not is_nic_shot:
+            rule_tags.append('shortfill')
         
         # Basic product type (skip if already have a category from handle/title)
         if forced_category is None:
@@ -1104,18 +1260,27 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             rule_tags.append('charger')
         
         # Device style detection
-        if 'pen' in text and 'style' in text:
-            rule_tags.append('pen_style')
-        elif 'pod' in text and 'style' in text:
-            rule_tags.append('pod_style')
-        elif 'box' in text and 'style' in text:
-            rule_tags.append('box_style')
-        elif 'stick' in text:
-            rule_tags.append('stick_style')
-        elif 'compact' in text:
-            rule_tags.append('compact')
-        elif 'mini' in text:
-            rule_tags.append('mini')
+        # For vaping products, allow device form detection even without 'style' keyword
+        is_vaping_product = (product_type and 'vaping' in product_type.lower()) or \
+                           forced_category in ('device', 'disposable', 'pod_system', 'box_mod', 'pod')
+        
+        # CBD products should NOT get device style tags unless explicit evidence
+        is_cbd_product_type = (product_type and 'cbd' in product_type.lower()) or \
+                             'CBD' in rule_tags or forced_category == 'CBD'
+        
+        if not is_cbd_product_type or is_vaping_product:
+            if 'pen' in text and ('style' in text or is_vaping_product):
+                rule_tags.append('pen_style')
+            elif 'pod' in text and ('style' in text or is_vaping_product):
+                rule_tags.append('pod_style')
+            elif 'box' in text and ('style' in text or is_vaping_product):
+                rule_tags.append('box_style')
+            elif 'stick' in text:
+                rule_tags.append('stick_style')
+            elif 'compact' in text:
+                rule_tags.append('compact')
+            elif 'mini' in text:
+                rule_tags.append('mini')
         
         # Coil ohm detection
         ohm_matches = re.findall(r'(\d+)[-\.]?(\d*)\s*[ωo]h?m?', text)

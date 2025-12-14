@@ -18,17 +18,24 @@ class ThirdOpinionRecovery:
         Initialize third opinion recovery
         
         Args:
-            config: Configuration object
+            config: Configuration object (can be None for testing)
             logger: Logger instance
         """
         self.config = config
         self.logger = logger
-        self.base_url = config.ollama_base_url
-        self.timeout = config.ollama_timeout
         
-        # Use tertiary model for third opinion (different from cascade models)
-        self.recovery_model = getattr(config, 'tertiary_ai_model', 'llama3.1:latest')
-        self.enabled = getattr(config, 'enable_third_opinion', True)
+        # Handle None config gracefully for testing
+        if config is None:
+            self.base_url = "http://localhost:11434"
+            self.timeout = 30
+            self.recovery_model = 'llama3.1:latest'
+            self.enabled = False
+        else:
+            self.base_url = config.ollama_base_url
+            self.timeout = config.ollama_timeout
+            # Use tertiary model for third opinion (different from cascade models)
+            self.recovery_model = getattr(config, 'tertiary_ai_model', 'llama3.1:latest')
+            self.enabled = getattr(config, 'enable_third_opinion', True)
     
     def _build_recovery_prompt(
         self,
