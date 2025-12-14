@@ -195,17 +195,22 @@ class ControlledTagger:
         self.tag_to_category = self._build_tag_to_category()
         
         # Category priority for more specific categorization
+        # Higher number = higher priority (more specific categories should have higher priority)
         self.category_priority = {
-            'pod': 12,
-            'e-liquid': 13,
-            'cbd': 13,
-            'disposable': 10,
-            'pod_system': 8,
-            'device': 7,
-            'coil': 5,
-            'box_mod': 4,
-            'tank': 3,
-            'accessory': 2,
+            'CBD': 15,           # CBD always highest priority
+            'e-liquid': 14,      # E-liquid before disposable (explicit liquid products)
+            'coil': 13,          # Coils explicitly mentioned are coil products
+            'pod': 12,           # Replacement pods
+            'tank': 11,          # Tanks before device
+            'disposable': 10,    # Disposables
+            'pod_system': 9,     # Pod systems (kits)
+            'box_mod': 8,        # Box mods
+            'device': 7,         # Generic device (lowest priority for hardware)
+            'nicotine_pouches': 6,
+            'accessory': 5,
+            'supplement': 4,
+            'terpene': 3,
+            'extraction_equipment': 2,
         }
         self.category_tags = set(self.approved_tags.get('category', []))
         
@@ -756,23 +761,40 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         elif 'coil' in handle_title:
             rule_tags.append('coil')
             forced_category = 'coil'
+        elif 'tank' in handle_title:
+            rule_tags.append('tank')
+            forced_category = 'tank'
         elif 'cbd' in handle_title or 'cbg' in handle_title or ('hemp' in handle_title and ('oil' in handle_title or 'seed' in handle_title or 'extract' in handle_title)):
             rule_tags.append('CBD')
             forced_category = 'CBD'
-        elif 'e-liquid' in handle_title or 'liquid' in handle_title or ('nic' in handle_title and 'salt' in handle_title) or 'salt' in handle_title or 'mg' in handle_title:
+        elif 'e-liquid' in handle_title or 'liquid' in handle_title or ('nic' in handle_title and 'salt' in handle_title) or 'salt' in handle_title:
+            # Note: removed 'mg' as standalone indicator - too ambiguous (CBD products have mg too)
             rule_tags.append('e-liquid')
             forced_category = 'e-liquid'
-        elif 'pod' in handle_title:
-            rule_tags.append('pod')
-            forced_category = 'pod'
-        elif 'disposable' in handle_title:
+        # Check case BEFORE pod to avoid "airpod case" matching as pod
+        elif 'case' in handle_title:
+            rule_tags.append('case')
+            forced_category = 'accessory'
+        # Pod detection - use word boundary to avoid "airpod" matching
+        elif re.search(r'\bpod\b', handle_title):
+            # "pod kit" or "pod system" should be pod_system
+            if 'kit' in handle_title or 'system' in handle_title:
+                rule_tags.append('pod_system')
+                forced_category = 'pod_system'
+            else:
+                rule_tags.append('pod')
+                forced_category = 'pod'
+        elif 'disposable' in handle_title or 'puff' in handle_title or 'puffs' in handle_title:
+            rule_tags.append('disposable')
+            forced_category = 'disposable'
+        # Common disposable brand patterns
+        elif any(brand in handle_title for brand in ['elf bar', 'elfbar', 'crystal bar', 'lost mary', 
+                                                       'ske crystal', 'geek bar', 'geekbar', 'hayati',
+                                                       'elux', 'ivg bar', 'oxbar', 'waka']):
             rule_tags.append('disposable')
             forced_category = 'disposable'
         elif 'pouch' in handle_title:
             rule_tags.append('pouch')
-            forced_category = 'accessory'
-        elif 'case' in handle_title:
-            rule_tags.append('case')
             forced_category = 'accessory'
         elif 'mouthpiece' in handle_title:
             rule_tags.append('mouthpiece')
@@ -1033,24 +1055,41 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             if is_shortfill_size or (not bottle_sizes and not has_small_bottle):
                 rule_tags.append('shortfill')
         
-        # Basic product type
-        if any(word in text for word in ['disposable', 'puff']):
-            rule_tags.append('disposable')
-        elif any(word in text for word in ['e-liquid', 'liquid', 'juice']) or ('nic' in text and 'salt' in text):
-            rule_tags.append('e-liquid')
-        elif any(word in text for word in ['kit', 'device', 'mod']):
-            rule_tags.append('device')
+        # Basic product type (skip if already have a category from handle/title)
+        if forced_category is None:
+            if any(word in text for word in ['disposable', 'puff']):
+                rule_tags.append('disposable')
+            elif any(word in text for word in ['e-liquid', 'liquid', 'juice']) or ('nic' in text and 'salt' in text):
+                rule_tags.append('e-liquid')
+            elif any(word in text for word in ['kit', 'device', 'mod']):
+                rule_tags.append('device')
         
-        # Specific types
-        if 'coil' in text:
+        # Specific type detection - only add if not already have a category
+        # Don't add 'coil' just because description mentions it
+        has_category = forced_category is not None or any(t in self.category_tags for t in rule_tags)
+        if 'coil' in text and not has_category:
             rule_tags.append('coil')
-        if 'tank' in text or ('replacement' in text and 'glass' in text):
+        # Tank detection - but not for coils (which are "for tank" but aren't tanks)
+        if ('tank' in text or ('replacement' in text and 'glass' in text)) and forced_category not in ('coil', 'tank') and 'tank' not in rule_tags:
             rule_tags.append('tank')
-        if 'pod' in text:
-            if 'replacement' in text:
+        # Pod subtype detection - even if already categorized as pod
+        if re.search(r'\bpod\b', text) and forced_category != 'accessory':
+            if 'prefilled' in text or 'pre-filled' in text or 'pre_filled' in text:
+                rule_tags.append('prefilled_pod')
+            elif 'refillable' in text or 'replacement' in text:
                 rule_tags.append('replacement_pod')
-            else:
+            # Only add 'pod' category tag if not already present
+            if forced_category not in ('pod', 'pod_system') and 'pod' not in rule_tags and 'pod_system' not in rule_tags:
                 rule_tags.append('pod')
+            # Pod capacity detection
+            capacity_matches = re.findall(r'(\d+(?:\.\d+)?)\s*ml', text, re.IGNORECASE)
+            if capacity_matches:
+                capacity_config = self.approved_tags.get('capacity', {})
+                for cap in capacity_matches:
+                    cap_tag = f"{cap}ml"
+                    if cap_tag in capacity_config.get('tags', []):
+                        rule_tags.append(cap_tag)
+                        break
         if 'box' in text and 'mod' in text:
             rule_tags.append('box_mod')
         
@@ -1063,27 +1102,6 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         if 'charger' in text:
             rule_tags.append('accessory')
             rule_tags.append('charger')
-        
-        # Pod detection
-        if 'pod' in text:
-            if 'refillable' in text or 'replacement' in text:
-                rule_tags.append('refillable_pod')
-            elif 'prefilled' in text or 'pre-filled' in text or 'pre_filled' in text:
-                rule_tags.append('prefilled_pod')
-            else:
-                rule_tags.append('pod')
-            # Also set category
-            rule_tags.append('pod')
-            
-            # Pod capacity detection
-            capacity_matches = re.findall(r'(\d+(?:\.\d+)?)\s*ml', text, re.IGNORECASE)
-            if capacity_matches:
-                capacity_config = self.approved_tags.get('capacity', {})
-                for cap in capacity_matches:
-                    cap_tag = f"{cap}ml"
-                    if cap_tag in capacity_config.get('tags', []):
-                        rule_tags.append(cap_tag)
-                        break  # Take first valid capacity
         
         # Device style detection
         if 'pen' in text and 'style' in text:
@@ -1109,32 +1127,99 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
                     rule_tags.append(ohm_tag)
                     break
         
-        # Flavour type detection
-        if any(word in text for word in ['e-liquid', 'liquid', 'juice', 'pod', 'disposable']):
-            if any(word in text for word in ['fruit', 'berry', 'citrus', 'apple', 'orange']):
+        # Flavour type detection - check ALL applicable flavors (not elif chain)
+        # A product like "Strawberry Ice" should get BOTH fruity AND ice tags
+        if any(word in text for word in ['e-liquid', 'liquid', 'juice', 'pod', 'disposable', 'pouch', 'mg']):
+            # Fruity detection - primary keywords AND specific fruit names
+            fruity_keywords = [
+                'fruit', 'fruity', 'berry', 'citrus',
+                # Specific fruits
+                'strawberry', 'raspberry', 'blueberry', 'blackberry', 'cranberry',
+                'apple', 'pear', 'orange', 'lemon', 'lime', 'grapefruit', 'tangerine',
+                'mango', 'pineapple', 'coconut', 'papaya', 'guava', 'passion fruit', 'lychee',
+                'peach', 'plum', 'apricot', 'nectarine', 'cherry',
+                'grape', 'watermelon', 'melon', 'kiwi', 'banana'
+            ]
+            if any(word in text for word in fruity_keywords):
                 rule_tags.append('fruity')
-            elif 'ice' in text or 'cool' in text:
+            
+            # Ice/menthol detection - use word boundary to avoid matching 'ice' in 'device'
+            # Also exclude 'ice cream' which is a dessert, not a cooling flavor
+            ice_keywords = ['iced', 'icy', 'cool', 'cooling', 'menthol', 'mint', 
+                           'freeze', 'frozen', 'arctic', 'peppermint', 'spearmint', 'wintergreen']
+            # 'ice' needs special handling - must be standalone word, not part of 'device' or 'ice cream'
+            has_ice = re.search(r'\bice\b', text) is not None and 'ice cream' not in text
+            if has_ice or any(word in text for word in ice_keywords):
                 rule_tags.append('ice')
-            elif 'tobacco' in text:
+            
+            # Tobacco detection
+            if 'tobacco' in text:
                 rule_tags.append('tobacco')
-            elif any(word in text for word in ['dessert', 'bakery', 'cake', 'cookie']):
+            
+            # Desserts/bakery detection
+            dessert_keywords = ['dessert', 'bakery', 'cake', 'cookie', 'custard', 'cream',
+                               'donut', 'waffle', 'pastry', 'pudding', 'ice cream']
+            if any(word in text for word in dessert_keywords):
                 rule_tags.append('desserts/bakery')
-            elif any(word in text for word in ['beverage', 'drink', 'cola', 'coffee']):
+            
+            # Beverages detection
+            beverage_keywords = ['beverage', 'drink', 'cola', 'coffee', 'tea', 'soda', 
+                                'lemonade', 'energy drink', 'cocktail', 'mojito']
+            if any(word in text for word in beverage_keywords):
                 rule_tags.append('beverages')
-            elif 'nut' in text:
+            
+            # Candy/sweets detection
+            candy_keywords = ['candy', 'sweets', 'gummy', 'gummies', 'sour', 'bubblegum',
+                             'bubble gum', 'cotton candy', 'lollipop', 'blue razz', 'razz',
+                             'skittles', 'starburst', 'sherbet', 'rainbow', 'toffee', 'caramel']
+            if any(word in text for word in candy_keywords):
+                rule_tags.append('candy/sweets')
+            
+            # Nuts detection
+            nut_keywords = ['nut', 'nuts', 'nutty', 'almond', 'hazelnut', 'peanut', 'walnut', 'pistachio']
+            if any(word in text for word in nut_keywords):
                 rule_tags.append('nuts')
-            elif any(word in text for word in ['spice', 'herb', 'mint', 'cinnamon']):
+            
+            # Spices & herbs detection
+            spice_keywords = ['spice', 'spices', 'herb', 'herbs', 'cinnamon', 'vanilla', 
+                             'anise', 'licorice', 'ginger', 'clove']
+            if any(word in text for word in spice_keywords):
                 rule_tags.append('spices_&_herbs')
-            elif 'cereal' in text:
+            
+            # Cereal detection
+            if 'cereal' in text:
                 rule_tags.append('cereal')
-            elif 'unflavoured' in text or 'plain' in text:
+            
+            # Unflavoured detection
+            if 'unflavoured' in text or 'unflavored' in text or 'plain' in text:
                 rule_tags.append('unflavoured')
         
-        # Validate rule tags
+        # Validate rule tags and deduplicate (preserve order)
+        seen = set()
         valid_tags = []
         for tag in rule_tags:
-            if tag in self.all_approved_tags or (forced_category == 'CBD' and re.match(r'\d+mg', tag)):
+            if tag in seen:
+                continue
+            # Accept approved tags from flat list
+            if tag in self.all_approved_tags:
                 valid_tags.append(tag)
+                seen.add(tag)
+            # Accept nicotine strength (range-based, not in flat list)
+            elif re.match(r'^\d+(?:\.\d+)?mg$', tag):
+                # Validate against nicotine or CBD range
+                range_config = self.approved_tags.get('nicotine_strength', {}).get('range')
+                if range_config and forced_category != 'CBD':
+                    try:
+                        mg_value = float(tag.replace('mg', ''))
+                        if range_config['min'] <= mg_value <= range_config['max']:
+                            valid_tags.append(tag)
+                            seen.add(tag)
+                    except ValueError:
+                        pass
+                elif forced_category == 'CBD':
+                    # CBD has its own range - already validated when added
+                    valid_tags.append(tag)
+                    seen.add(tag)
         return valid_tags, forced_category
     
     def _process_single_product(self, product, index, total):

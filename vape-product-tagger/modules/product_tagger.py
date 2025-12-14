@@ -37,7 +37,7 @@ class ProductTagger:
         self.ai_cascade = AICascade(config, logger, ollama_processor) if ollama_processor else None
         self.third_opinion = ThirdOpinionRecovery(config, logger)
     
-    def _extract_nicotine_value(self, text: str, category: str = None) -> float:
+    def _extract_nicotine_value(self, text: str, category: str = None) -> Optional[float]:
         """
         Extract nicotine value from text
         
@@ -46,42 +46,52 @@ class ProductTagger:
             category: Product category (CBD products have 0mg by default)
         
         Returns:
-            float: Nicotine value in mg or 0 if not found
+            Optional[float]: Nicotine value in mg, 0.0 for explicit zero, or None if not found
         """
         if not text:
-            return 0.0
+            return None
         
         # CBD products are always 0mg nicotine
         if category == "CBD":
             return 0.0
         
-        text = text.lower()
+        text_lower = text.lower()
         
-        # Check for zero nicotine keywords
-        if any(keyword in text for keyword in ['0mg', 'zero nicotine', 'no nicotine', 'nicotine free']):
-            return 0.0
+        # Check for explicit zero nicotine keywords (using word boundaries to avoid substring matches)
+        # These phrases definitively indicate zero nicotine
+        zero_phrases = ['zero nicotine', 'no nicotine', 'nicotine free', 'nicotine-free']
+        for phrase in zero_phrases:
+            if phrase in text_lower:
+                return 0.0
         
         # Pattern to find nicotine values like "20mg", "3.5mg", etc.
+        # Look for the FIRST mg value in the text (usually in title at the start)
+        # Use word boundary to match complete values like "20mg" not partial matches
         patterns = [
-            r'(\d+\.?\d*)\s*mg',
-            r'(\d+\.?\d*)\s*%',
-            r'nicotine:\s*(\d+\.?\d*)',
+            r'\b(\d+\.?\d*)\s*mg\b',  # Standard mg format with word boundaries
+            r'nicotine[:\s]+(\d+\.?\d*)\s*mg',  # "nicotine: 20mg" format
+            r'(\d+\.?\d*)\s*mg\s*(?:nic|nicotine)',  # "20mg nic" format
         ]
         
         for pattern in patterns:
-            match = re.search(pattern, text)
+            match = re.search(pattern, text_lower)
             if match:
                 try:
                     value = float(match.group(1))
-                    # Validate max 20mg for nicotine
-                    if value > 20:
-                        self.logger.warning(f"Illegal nicotine value {value}mg detected (max 20mg)")
+                    # Return 0 if explicitly 0mg
+                    if value == 0:
                         return 0.0
+                    # Validate max 20mg for nicotine (UK/EU TPD limit)
+                    if value > 20:
+                        # This might be a CBD/bottle size value, not nicotine
+                        # Don't log warning, just skip and try next pattern
+                        continue
                     return value
                 except ValueError:
                     continue
         
-        return 0.0
+        # No valid nicotine value found
+        return None
     
     def _match_keywords(self, text: str, keywords: List[str]) -> bool:
         """
@@ -152,10 +162,10 @@ class ProductTagger:
             text: Text to search
         
         Returns:
-            float: CBD value in mg or 0 if not found
+            Optional[float]: CBD value in mg or None if not found
         """
         if not text:
-            return 0.0
+            return None
         
         text = text.lower()
         
@@ -174,12 +184,12 @@ class ProductTagger:
                     # Validate max 50000mg for CBD
                     if value > 50000:
                         self.logger.warning(f"CBD value {value}mg exceeds max 50000mg")
-                        return 0.0
+                        return None
                     return value
                 except ValueError:
                     continue
         
-        return 0.0
+        return None
     
     def _extract_vg_ratio(self, text: str) -> str:
         """
@@ -346,7 +356,29 @@ class ProductTagger:
         if "CBD" in detected_categories:
             return "CBD"
         
-        # Return first detected category
+        # Priority ordering: more specific categories override generic ones
+        # e.g., "coil" is more specific than "device"
+        priority_order = [
+            "accessory",  # Accessories take priority (drip tips, glass, etc.)
+            "coil",       # Coils mentioned explicitly are coil products
+            "tank",       # Tanks before generic device
+            "pod_system", # Pod systems before pod and device (more specific)
+            "pod",        # Pods before generic device  
+            "box_mod",    # Box mods before generic device
+            "device",     # Generic device
+            "e-liquid",
+            "disposable",
+            "nicotine_pouches",
+            "supplement",
+            "terpene",
+            "extraction_equipment"
+        ]
+        
+        for priority_cat in priority_order:
+            if priority_cat in detected_categories:
+                return priority_cat
+        
+        # Return first detected category as fallback
         if detected_categories:
             return detected_categories[0]
         
@@ -407,9 +439,12 @@ class ProductTagger:
         tags = []
         text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
         
-        # Match capacity patterns
+        # Match capacity patterns using word boundaries to avoid substring matches
+        # e.g., "2ml" should NOT match inside "12ml"
         for capacity in self.taxonomy.CAPACITY_KEYWORDS:
-            if capacity in text:
+            # Use word boundary regex to match exact capacity values
+            pattern = r'(?<![0-9])' + re.escape(capacity) + r'(?!\w)'
+            if re.search(pattern, text):
                 tags.append(capacity)
         
         return list(set(tags))
@@ -697,13 +732,22 @@ class ProductTagger:
         primary_flavors = []
         text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
         
-        # Check each flavor type
+        # Check each flavor type - check BOTH primary and secondary keywords
+        # Secondary keywords (like "strawberry", "mango", "bubblegum") should also trigger the flavor type
         for flavor_type, data in self.taxonomy.FLAVOR_KEYWORDS.items():
+            # Check primary keywords first (e.g., "fruit", "fruity")
             primary_keywords = data.get('primary_keywords', [])
             if self._match_keywords(text, primary_keywords):
                 primary_flavors.append(flavor_type)
+                continue  # Already matched, skip to next flavor type
+            
+            # Also check secondary keywords to determine flavor type
+            # e.g., "strawberry" should trigger "fruity" even without "fruit" keyword
+            secondary_keywords = data.get('secondary_keywords', [])
+            if self._match_keywords(text, secondary_keywords):
+                primary_flavors.append(flavor_type)
         
-        # Extract secondary flavors opportunistically
+        # Extract secondary flavors opportunistically (specific flavor names found)
         secondary_flavors = self._extract_secondary_flavors(text, primary_flavors)
         
         return primary_flavors, secondary_flavors

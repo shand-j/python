@@ -20,12 +20,24 @@ class VapeTaxonomy:
             "nicotine pouch", "nic pouch", "snus", "nicotine candy", "nicotine lozenge",
             "spearmint pouches", "mint pouches", "zero pouches"
         ],  # Before "pouch" alone
+        "disposable": [
+            "disposable", "single use", "throw away", "one time", "disposable vape", "disposable pod",
+            # Common brand patterns that indicate disposables
+            "puff", "puffs", "600 puff", "800 puff",
+            "elf bar", "elfbar", "crystal bar", "lost mary", "ske crystal", 
+            "geek bar", "geekbar", "hayati", "elux", "r and m", "randm",
+            "ivg bar", "vaporesso xros nano", "oxbar", "oxva", "waka",
+            # Indicators of disposables
+            "prefilled device", "all in one disposable"
+        ],
         "e-liquid": [
             "e-liquid", "eliquid", "e liquid", "vape juice", "vape liquid", "ejuice",
             "nic salt", "nicotine salt", "shortfill", "longfill", "freebase",
-            "50vg", "70vg", "80vg", "vg/pg", "pg/vg"
+            "50vg", "70vg", "80vg", "vg/pg", "pg/vg",
+            # Additional e-liquid indicators
+            "10ml", "30ml", "50ml", "100ml",  # Common bottle sizes
+            "salt", "salts"  # Nic salts
         ],
-        "disposable": ["disposable", "single use", "throw away", "one time", "disposable vape", "disposable pod"],
         "pod_system": ["pod system", "pod mod", "pod device", "pod kit", "starter kit"],  # Before generic device
         "box_mod": ["box mod", "square mod"],
         "device": ["device", "vape device", "vaping device", "mod", "vape mod", "kit"],
