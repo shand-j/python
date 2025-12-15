@@ -142,8 +142,8 @@ def test_nicotine_pouches():
     # Current behavior: 'pouch' detected as accessory, which is correct per logic
     # The product mentions 'pouches' which triggers 'pouch' tag and forces 'accessory'
     # This is reasonable - nicotine pouches are a type of pouch accessory
-    assert 'pouch' in rule_tags or forced == 'accessory', \
-        f"Should detect pouch/accessory, got tags={rule_tags}, forced={forced}"
+    assert forced == 'accessory', f"Should force accessory category, got forced={forced}"
+    assert 'pouch' in rule_tags, f"Should detect pouch tag, got: {rule_tags}"
     assert '20mg' in rule_tags, f"Should detect 20mg strength, got: {rule_tags}"
 
 
@@ -187,8 +187,7 @@ def test_device_pen_style():
     # Current behavior: 'battery' keyword forces 'accessory' category
     # This is correct - a battery is an accessory, not a complete device
     # Pen style is still correctly detected
-    assert forced == 'accessory' or 'accessory' in rule_tags, \
-        f"Should detect accessory (battery), got tags={rule_tags}, forced={forced}"
+    assert forced == 'accessory', f"Should force accessory category, got forced={forced}"
     assert 'battery' in rule_tags, f"Should detect battery, got: {rule_tags}"
     assert 'pen_style' in rule_tags, f"Should detect pen_style, got: {rule_tags}"
 
