@@ -408,18 +408,42 @@ class ProductTagger:
         Returns:
             List[str]: Device style tags
         """
-        # Check applies_to rule
-        if category and category not in ["device", "pod_system"]:
+        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
+        
+        # CBD products should not get device styles unless explicit device evidence
+        is_cbd = category == 'CBD' or 'cbd' in text or 'cbg' in text
+        
+        # Check for explicit device evidence in CBD products
+        device_evidence = any(word in text for word in ['vape', 'vaping', 'device', 'kit', 'pen device', 'pod device'])
+        
+        # Skip device style tagging for CBD products without device evidence
+        if is_cbd and not device_evidence:
+            return []
+        
+        # Check applies_to rule (but allow if explicit device evidence for CBD)
+        if category and category not in ["device", "pod_system", "CBD"]:
             return []
         
         tags = []
-        text = f"{product_data.get('title', '')} {product_data.get('description', '')}".lower()
         
         for style, keywords in self.taxonomy.DEVICE_STYLE_KEYWORDS.items():
             if self._match_keywords(text, keywords):
                 tags.append(style)
         
         return list(set(tags))
+    
+    def tag_device_form(self, product_data: Dict, category: str = None) -> List[str]:
+        """
+        Alias for tag_device_style for backward compatibility
+        
+        Args:
+            product_data: Product information dictionary
+            category: Optional product category
+            
+        Returns:
+            List[str]: Device style/form tags
+        """
+        return self.tag_device_style(product_data, category)
     
     def tag_capacity(self, product_data: Dict, category: str = None) -> List[str]:
         """
