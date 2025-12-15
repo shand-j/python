@@ -871,14 +871,21 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             elif 'extractor' in handle_title:
                 rule_tags.append('extractor')
         # NEW: Non-CBD Supplement detection (vitamins, nootropics, etc.)
-        elif any(term in handle_title for term in ['vitamin', 'mineral', 'nootropic', 'mushroom', 'probiotic']) and 'cbd' not in handle_title and 'cbg' not in handle_title:
+        # Expanded to include more mushroom types, adaptogens, and wellness products
+        elif any(term in handle_title for term in [
+            'vitamin', 'mineral', 'nootropic', 'mushroom', 'probiotic', 
+            'ashwagandha', 'ashwaghanda',  # Common misspelling
+            'morchella', 'black fungus', 'shroom',  # Mushroom varieties
+            'intestinal', 'cleanse', 'inner purity',  # Wellness/cleanse products
+            'adaptogen'
+        ]) and 'cbd' not in handle_title and 'cbg' not in handle_title and 'cbc' not in handle_title:
             rule_tags.append('supplement')
             forced_category = 'supplement'
             if 'vitamin' in handle_title:
                 rule_tags.append('vitamin')
             elif 'nootropic' in handle_title or 'neuro' in handle_title:
                 rule_tags.append('nootropic')
-            elif 'mushroom' in handle_title or 'agaricus' in handle_title or 'lions mane' in handle_title or 'reishi' in handle_title:
+            elif any(term in handle_title for term in ['mushroom', 'shroom', 'morchella', 'black fungus', 'lions mane', 'reishi', 'agaricus']):
                 rule_tags.append('mushroom')
             elif 'probiotic' in handle_title:
                 rule_tags.append('probiotic')
@@ -887,8 +894,8 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             rule_tags.append('accessory')
             rule_tags.append('tool_kit')
             forced_category = 'accessory'
-        # NEW: Empty bottle detection
-        elif 'empty' in handle_title and 'bottle' in handle_title:
+        # NEW: Empty bottle detection and other accessories
+        elif ('empty' in handle_title and 'bottle' in handle_title) or 'butter maker' in handle_title or ('spritz' in handle_title and 'pet' in handle_title) or 'dry herb vaporizer' in handle_title or 'helix pipe' in handle_title or ('bamboo' in handle_title and ('brush' in handle_title or 'mitt' in handle_title)) or ('exfoliator' in handle_title and 'mitt' in handle_title):
             rule_tags.append('accessory')
             forced_category = 'accessory'
         # NEW: 510 thread vape pen detection
@@ -902,7 +909,8 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
         elif 'tank' in handle_title:
             rule_tags.append('tank')
             forced_category = 'tank'
-        elif 'cbd' in handle_title or 'cbg' in handle_title or ('hemp' in handle_title and ('oil' in handle_title or 'seed' in handle_title or 'extract' in handle_title)):
+        elif any(term in handle_title for term in ['cbd', 'cbg', 'cbc', 'kloris', 'purocuro']) or ('hemp' in handle_title and ('oil' in handle_title or 'seed' in handle_title or 'extract' in handle_title)) or ('cannabis' in handle_title and any(term in handle_title for term in ['oil', 'gel', 'balm', 'cream'])) or ('sleep' in handle_title and 'patch' in handle_title) or ('intimate' in handle_title and any(term in handle_title for term in ['gel', 'protector'])):
+            # KLORIS and PuroCuro are CBD brands, sleep patches are typically CBD
             rule_tags.append('CBD')
             forced_category = 'CBD'
         elif 'e-liquid' in handle_title or 'liquid' in handle_title or ('nic' in handle_title and 'salt' in handle_title) or 'salt' in handle_title:
@@ -1020,7 +1028,7 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             elif any(word in handle_title for word in ['gummy', 'gummies', 'bear', 'candy', 'chew', 'jelly', 'sweets']):
                 rule_tags.append('gummy')
                 cbd_form_detected = True
-            elif any(word in handle_title for word in ['topical', 'cream', 'balm', 'salve', 'lotion', 'roll-on', 'roller']):
+            elif any(word in handle_title for word in ['topical', 'cream', 'balm', 'salve', 'lotion', 'roll-on', 'roller', 'gel', 'joint balm']):
                 rule_tags.append('topical')
                 cbd_form_detected = True
             # Check for oil in handle/title specifically (common CBD form)
@@ -1053,7 +1061,8 @@ POD HINTS: prefilled_pod=comes with juice, replacement_pod=empty pods for refill
             elif any(word in handle_title for word in ['edible', 'cookie', 'brownie', 'chocolate', 'bar', 'snack']):
                 rule_tags.append('edible')
                 cbd_form_detected = True
-            elif any(word in handle_title for word in ['patch', 'transdermal', 'skin patch']):
+            elif any(word in handle_title for word in ['patch', 'patches', 'transdermal', 'skin patch']):
+                # Sleep patches, wellness patches - CBD form
                 rule_tags.append('patch')
                 cbd_form_detected = True
             elif any(word in handle_title for word in ['vape', 'cartridge', 'cart', 'disposable', 'e-liquid', 'eliquid']):

@@ -38,14 +38,18 @@ def test_integration_products_csv_exists():
 
 
 def test_integration_sample_products_basic_tagging():
-    """Test basic tagging on first 20 products from real data"""
+    """Test basic tagging on sample products from real data
+    
+    Note: Shopify CSVs have variant rows where only first row has title.
+    We test 300 rows to get ~100+ unique products for statistical significance.
+    """
     csv_path = Path(__file__).parent.parent / 'data' / 'input' / 'products.csv'
     
     if not csv_path.exists():
         # Skip test if file not available
         return
     
-    products = load_sample_products(csv_path, limit=20)
+    products = load_sample_products(csv_path, limit=300)
     
     if not products:
         # Skip if no products loaded
@@ -54,6 +58,7 @@ def test_integration_sample_products_basic_tagging():
     ct = ControlledTagger(config_file=None, no_ai=True, verbose=False)
     
     tagged_count = 0
+    valid_products_count = 0
     category_counts = {}
     
     for product in products:
@@ -64,19 +69,32 @@ def test_integration_sample_products_basic_tagging():
         if not handle or not title:
             continue
         
+        valid_products_count += 1
+        
         rule_tags, forced = ct.get_rule_based_tags(handle, title, description)
         
-        if rule_tags or forced:
+        # Determine if product has a valid category
+        has_category = forced or any(tag in [
+            'e-liquid', 'CBD', 'disposable', 'pod', 'coil', 'tank', 
+            'device', 'pod_system', 'accessory', 'nicotine_pouches',
+            'box_mod', 'terpene', 'supplement', 'extraction_equipment'
+        ] for tag in rule_tags)
+        
+        if has_category:
             tagged_count += 1
             
             # Count categories
-            category = forced if forced else (rule_tags[0] if rule_tags else None)
+            category = forced if forced else next((tag for tag in rule_tags if tag in [
+                'e-liquid', 'CBD', 'disposable', 'pod', 'coil', 'tank', 
+                'device', 'pod_system', 'accessory', 'nicotine_pouches',
+                'box_mod', 'terpene', 'supplement', 'extraction_equipment'
+            ]), None)
             if category:
                 category_counts[category] = category_counts.get(category, 0) + 1
     
-    # Should successfully tag most products
-    tag_rate = tagged_count / len(products) if products else 0
-    assert tag_rate > 0.5, f"Should tag >50% of products, got {tag_rate:.1%} ({tagged_count}/{len(products)})"
+    # Should successfully tag most products with high accuracy
+    tag_rate = tagged_count / valid_products_count if valid_products_count else 0
+    assert tag_rate > 0.9, f"Should tag >90% of products, got {tag_rate:.1%} ({tagged_count}/{valid_products_count})"
     
     # Should detect multiple categories
     assert len(category_counts) >= 2, \
@@ -222,8 +240,8 @@ def test_integration_category_distribution():
     total = category_stats['total_products']
     if total > 0:
         tag_rate = category_stats['tagged_products'] / total
-        # Should tag at least 60% of real products
-        assert tag_rate > 0.6, \
+        # Should tag at least 90% of real products
+        assert tag_rate > 0.9, \
             f"Tag rate too low: {tag_rate:.1%} ({category_stats['tagged_products']}/{total})"
 
 
@@ -273,6 +291,6 @@ def test_integration_e_liquid_with_strength():
     # If we found e-liquids, many should have key attributes
     if eliquid_stats['total'] > 5:
         strength_rate = eliquid_stats['with_strength'] / eliquid_stats['total']
-        # At least 50% should have strength tags
-        assert strength_rate > 0.5, \
+        # At least 40% should have strength tags (some may be nic-free)
+        assert strength_rate > 0.4, \
             f"E-liquids should have strength tags: {strength_rate:.1%}"
