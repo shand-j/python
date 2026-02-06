@@ -1,0 +1,11 @@
+name: openclaw-deployment
+runtime: python
+description: OpenClaw infrastructure deployment with Pulumi
+
+config:
+  deployment_type:
+    type: string
+    default: docker
+  openclaw_config:
+    type: string
+    secret: true
