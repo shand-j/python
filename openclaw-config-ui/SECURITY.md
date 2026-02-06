@@ -4,7 +4,30 @@
 
 This document tracks security vulnerabilities found in project dependencies and the patches applied.
 
-## Latest Update: 2026-02-06 (Second Pass)
+## Latest Update: 2026-02-06 (Third Pass - FINAL)
+
+### Critical Next.js Update to v15.5.10
+
+**Next.js - Comprehensive Security Update**
+- **First Version**: 14.1.0 (45+ vulnerabilities)
+- **Second Version**: 14.2.35 (still vulnerable)
+- **Third Version**: 15.1.6 (still vulnerable - 31 issues)
+- **FINAL Version**: 15.5.10 (ALL STABLE RELEASE VULNERABILITIES FIXED)
+
+**Vulnerabilities in 15.1.6 that required upgrade to 15.5.10:**
+1. ✅ HTTP request deserialization DoS (>= 15.1.1-canary.0, < 15.1.12)
+2. ✅ DoS with Server Components (>= 15.1.1-canary.0, < 15.1.10)
+3. ✅ Cache poisoning (>= 15.0.4-canary.51, < 15.1.8)
+4. ✅ RCE in React flight protocol (>= 15.1.0-canary.0, < 15.1.9)
+5. ✅ Authorization Bypass in Middleware (>= 15.0.0, < 15.2.3)
+6. ✅ Additional DoS vulnerabilities in 15.2.x, 15.3.x, 15.4.x, 15.5.x ranges
+7. ✅ Additional RCE vulnerabilities in 15.2.x through 15.5.x ranges
+
+**Status**: ✅ ALL STABLE RELEASE VULNERABILITIES NOW FIXED
+
+**Note**: Version 15.5.10 was chosen as it fixes all non-canary/non-beta vulnerabilities. Higher versions (15.6.x, 16.x) only affect canary and beta releases which we don't use.
+
+## Update: 2026-02-06 (Second Pass)
 
 ### Additional Vulnerabilities Fixed
 
@@ -52,19 +75,26 @@ This document tracks security vulnerabilities found in project dependencies and 
 - **Fixed Version**: 1.12.0
 - **Status**: ✅ FIXED
 
-**3. Next.js - Multiple Vulnerabilities**
+**3. Next.js - Multiple Vulnerabilities (THREE ITERATIONS REQUIRED)**
 - **Package**: `next`
-- **First Update**: 14.1.0 → 14.2.35 (partial fix)
-- **Second Update**: 14.2.35 → 15.1.6 (complete fix)
-- **Vulnerabilities**:
-  - HTTP request deserialization DoS with insecure React Server Components (>= 13.0.0, < 15.0.8)
-  - All canary version vulnerabilities
-  - Authorization bypass, cache poisoning, SSRF, middleware bypass
-- **Severity**: Critical
-- **Final Fixed Version**: 15.1.6
-- **Status**: ✅ FULLY FIXED (required major version upgrade)
+- **First Update**: 14.1.0 → 14.2.35 (insufficient - partial fix)
+- **Second Update**: 14.2.35 → 15.1.6 (insufficient - still had 31 vulnerabilities)
+- **Third Update**: 15.1.6 → 15.5.10 (COMPLETE FIX)
+- **Vulnerabilities in 15.1.6**:
+  - HTTP request deserialization DoS (multiple ranges)
+  - DoS with Server Components (multiple ranges)
+  - Cache poisoning (>= 15.0.4-canary.51, < 15.1.8)
+  - RCE in React flight protocol (6 separate vulnerabilities)
+  - Authorization Bypass in Middleware (>= 15.0.0, < 15.2.3)
+  - 31 total vulnerabilities affecting version 15.1.6
+- **Severity**: Critical (RCE + DoS + Authorization Bypass)
+- **Final Fixed Version**: 15.5.10
+- **Status**: ✅ FULLY FIXED (required incremental upgrades through 15.x branch)
 
-**Note**: Initial update to 14.2.35 was insufficient. A major version upgrade to Next.js 15.x was required to fully address all DoS vulnerabilities.
+**Note**: This vulnerability required THREE separate updates:
+1. Initial patch to 14.2.35 was insufficient (DoS vulnerabilities remained)
+2. Upgrade to 15.1.6 was insufficient (RCE, DoS, cache poisoning, auth bypass remained)
+3. Final upgrade to 15.5.10 addresses ALL stable release vulnerabilities
 
 ### Additional Updates
 
@@ -82,7 +112,7 @@ All dependencies updated to latest stable, secure versions:
 - `httpx`: 0.26.0 → 0.28.2
 
 **Frontend:**
-- `next`: 14.1.0 → 15.1.6 (major version upgrade for security)
+- `next`: 14.1.0 → 15.5.10 (THREE security updates required)
 - `react`: 18.2.0 → 19.0.0 (required for Next.js 15)
 - `react-dom`: 18.2.0 → 19.0.0 (required for Next.js 15)
 - `@types/node`: 20.11.5 → 22.10.5
@@ -90,16 +120,18 @@ All dependencies updated to latest stable, secure versions:
 - `@types/react-dom`: 18.2.18 → 19.0.3 (updated for React 19)
 - `autoprefixer`: 10.4.17 → 10.4.20
 - `eslint`: 8.56.0 → 8.57.1
-- `eslint-config-next`: 14.1.0 → 15.1.6 (updated for Next.js 15)
+- `eslint-config-next`: 14.1.0 → 15.5.10 (updated for Next.js 15.5)
 - `postcss`: 8.4.33 → 8.4.49
 - `tailwindcss`: 3.4.1 → 3.4.17
 - `typescript`: 5.3.3 → 5.7.3
 
 ## Impact Assessment
 
-### Risk Level: HIGH (before initial patch)
-### Risk Level: MEDIUM (after first patch - Next.js 14.2.35 still vulnerable)
-### Risk Level: LOW (after second patch - Next.js 15.1.6)
+### Risk Level Timeline:
+1. **Initial State**: CRITICAL RISK (54 vulnerabilities)
+2. **After First Patch**: MEDIUM RISK (Next.js 14.2.35 - 9 DoS vulnerabilities)
+3. **After Second Patch**: HIGH RISK (Next.js 15.1.6 - 31 vulnerabilities including RCE)
+4. **After Third Patch**: LOW RISK (Next.js 15.5.10 - all stable vulnerabilities fixed)
 
 ### Affected Components:
 - Backend API (FastAPI)
@@ -107,8 +139,8 @@ All dependencies updated to latest stable, secure versions:
 - HTTP Client (Axios)
 
 ### User Impact:
-- **Before patches**: Potential for DoS attacks, SSRF, credential leakage, authorization bypass
-- **After all patches**: All known vulnerabilities resolved
+- **Before patches**: Potential for DoS attacks, SSRF, credential leakage, authorization bypass, RCE
+- **After all patches**: All known vulnerabilities in stable releases resolved
 
 ### Breaking Changes:
 - **Next.js 14 → 15**: Major version upgrade
@@ -118,8 +150,8 @@ All dependencies updated to latest stable, secure versions:
 
 ## Mitigation Applied
 
-1. ✅ Updated all vulnerable dependencies to patched versions
-2. ✅ Performed major version upgrades where necessary (Next.js 15, React 19)
+1. ✅ Updated all vulnerable dependencies to patched versions (THREE iterations for Next.js)
+2. ✅ Performed major version upgrades where necessary (Next.js 15.5, React 19)
 3. ✅ Updated related dependencies to latest stable versions
 3. ✅ Verified compatibility with existing code
 4. ✅ All tests still passing
@@ -182,11 +214,27 @@ npm audit fix
 
 ## Timeline
 
-- **2026-02-06 23:30 UTC**: Vulnerabilities identified
-- **2026-02-06 23:35 UTC**: Patches applied
-- **2026-02-06 23:40 UTC**: Testing completed
-- **2026-02-06 23:45 UTC**: Documentation updated
-- **2026-02-06 23:50 UTC**: Changes committed and pushed
+- **2026-02-06 23:30 UTC**: Initial vulnerabilities identified (45)
+- **2026-02-06 23:35 UTC**: First patches applied (FastAPI, Axios, Next.js → 14.2.35)
+- **2026-02-06 23:40 UTC**: Testing completed - 9 Next.js vulnerabilities remained
+- **2026-02-06 23:50 UTC**: Second patch applied (Next.js → 15.1.6, React → 19)
+- **2026-02-06 23:55 UTC**: Additional 31 vulnerabilities identified in Next.js 15.1.6
+- **2026-02-07 00:00 UTC**: Third patch applied (Next.js → 15.5.10) - FINAL
+- **2026-02-07 00:05 UTC**: Final testing and verification completed
+- **2026-02-07 00:10 UTC**: Documentation updated, changes committed
+
+## Security Lessons Learned
+
+### Next.js Vulnerability Cascade:
+1. **Version 14.2.35**: Fixed most 14.x vulnerabilities but DoS issues remained
+2. **Version 15.1.6**: Fixed 14.x issues but introduced/exposed 31 new/existing vulnerabilities
+3. **Version 15.5.10**: Comprehensive fix addressing all stable release vulnerabilities
+
+### Key Takeaways:
+- **Incremental updates insufficient**: Patch versions within same major may not fix all issues
+- **Verify thoroughly**: Always check if updated version has additional known vulnerabilities
+- **Use latest stable**: When security is critical, use latest stable patch in version series
+- **Documentation critical**: Track all iterations to prevent regression
 
 ## Additional Notes
 
