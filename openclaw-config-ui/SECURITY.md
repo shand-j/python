@@ -4,7 +4,25 @@
 
 This document tracks security vulnerabilities found in project dependencies and the patches applied.
 
-## Date: 2026-02-06
+## Latest Update: 2026-02-06 (Second Pass)
+
+### Additional Vulnerabilities Fixed
+
+**Next.js - Critical Update to v15.1.6**
+- **Previous Version**: 14.2.35 (still vulnerable)
+- **New Version**: 15.1.6 (fully patched)
+- **Issue**: Version 14.2.35 was still affected by HTTP request deserialization DoS vulnerabilities
+- **Fix**: Upgraded to Next.js 15.x stable branch which fully resolves all DoS vulnerabilities
+- **Status**: ✅ ALL VULNERABILITIES FIXED
+
+**React - Updated for Next.js 15 compatibility**
+- **react**: 18.3.1 → 19.0.0
+- **react-dom**: 18.3.1 → 19.0.0
+- **@types/react**: 18.3.18 → 19.0.6
+- **@types/react-dom**: 18.3.5 → 19.0.3
+- **Reason**: Next.js 15 requires React 19
+
+## Date: 2026-02-06 (Initial Pass)
 
 ### Vulnerabilities Fixed
 
@@ -36,17 +54,17 @@ This document tracks security vulnerabilities found in project dependencies and 
 
 **3. Next.js - Multiple Vulnerabilities**
 - **Package**: `next`
-- **Affected Version**: 14.1.0
+- **First Update**: 14.1.0 → 14.2.35 (partial fix)
+- **Second Update**: 14.2.35 → 15.1.6 (complete fix)
 - **Vulnerabilities**:
-  - HTTP request deserialization DoS with insecure React Server Components (multiple version ranges)
-  - Denial of Service with Server Components (multiple version ranges)
-  - Authorization bypass vulnerability (>= 9.5.5, < 14.2.15)
-  - Cache Poisoning (>= 14.0.0, < 14.2.10)
-  - Server-Side Request Forgery in Server Actions (>= 13.4.0, < 14.1.1)
-  - Authorization Bypass in Middleware (multiple version ranges)
+  - HTTP request deserialization DoS with insecure React Server Components (>= 13.0.0, < 15.0.8)
+  - All canary version vulnerabilities
+  - Authorization bypass, cache poisoning, SSRF, middleware bypass
 - **Severity**: Critical
-- **Fixed Version**: 14.2.35
-- **Status**: ✅ FIXED
+- **Final Fixed Version**: 15.1.6
+- **Status**: ✅ FULLY FIXED (required major version upgrade)
+
+**Note**: Initial update to 14.2.35 was insufficient. A major version upgrade to Next.js 15.x was required to fully address all DoS vulnerabilities.
 
 ### Additional Updates
 
@@ -64,22 +82,24 @@ All dependencies updated to latest stable, secure versions:
 - `httpx`: 0.26.0 → 0.28.2
 
 **Frontend:**
-- `react`: 18.2.0 → 18.3.1
-- `react-dom`: 18.2.0 → 18.3.1
+- `next`: 14.1.0 → 15.1.6 (major version upgrade for security)
+- `react`: 18.2.0 → 19.0.0 (required for Next.js 15)
+- `react-dom`: 18.2.0 → 19.0.0 (required for Next.js 15)
 - `@types/node`: 20.11.5 → 22.10.5
-- `@types/react`: 18.2.48 → 18.3.18
-- `@types/react-dom`: 18.2.18 → 18.3.5
+- `@types/react`: 18.2.48 → 19.0.6 (updated for React 19)
+- `@types/react-dom`: 18.2.18 → 19.0.3 (updated for React 19)
 - `autoprefixer`: 10.4.17 → 10.4.20
 - `eslint`: 8.56.0 → 8.57.1
-- `eslint-config-next`: 14.1.0 → 14.2.35
+- `eslint-config-next`: 14.1.0 → 15.1.6 (updated for Next.js 15)
 - `postcss`: 8.4.33 → 8.4.49
 - `tailwindcss`: 3.4.1 → 3.4.17
 - `typescript`: 5.3.3 → 5.7.3
 
 ## Impact Assessment
 
-### Risk Level: HIGH (before patch)
-### Risk Level: LOW (after patch)
+### Risk Level: HIGH (before initial patch)
+### Risk Level: MEDIUM (after first patch - Next.js 14.2.35 still vulnerable)
+### Risk Level: LOW (after second patch - Next.js 15.1.6)
 
 ### Affected Components:
 - Backend API (FastAPI)
@@ -87,13 +107,20 @@ All dependencies updated to latest stable, secure versions:
 - HTTP Client (Axios)
 
 ### User Impact:
-- **Before patch**: Potential for DoS attacks, SSRF, credential leakage, authorization bypass
-- **After patch**: All known vulnerabilities resolved
+- **Before patches**: Potential for DoS attacks, SSRF, credential leakage, authorization bypass
+- **After all patches**: All known vulnerabilities resolved
+
+### Breaking Changes:
+- **Next.js 14 → 15**: Major version upgrade
+- **React 18 → 19**: Major version upgrade (required by Next.js 15)
+- **Impact**: Application code remains compatible, no user-facing changes
+- **Testing**: All functionality verified working with new versions
 
 ## Mitigation Applied
 
 1. ✅ Updated all vulnerable dependencies to patched versions
-2. ✅ Updated related dependencies to latest stable versions
+2. ✅ Performed major version upgrades where necessary (Next.js 15, React 19)
+3. ✅ Updated related dependencies to latest stable versions
 3. ✅ Verified compatibility with existing code
 4. ✅ All tests still passing
 5. ✅ Documented changes
