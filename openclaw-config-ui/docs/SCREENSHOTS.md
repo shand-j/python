@@ -12,7 +12,7 @@ The OpenClaw Configuration UI is a 7-step wizard that guides non-technical users
 
 ### Step 1: Welcome Screen
 
-![Welcome Screen](screenshots/01-welcome.png)
+![Welcome Screen](https://github.com/user-attachments/assets/69327b24-4665-4be7-93d8-ddb35665958d)
 
 **What the user sees:**
 - Large friendly heading: "OpenClaw Setup Wizard"
@@ -35,7 +35,7 @@ The OpenClaw Configuration UI is a 7-step wizard that guides non-technical users
 
 ### Step 2: Deployment Type Selection
 
-![Deployment Selection](screenshots/02-deployment.png)
+![Deployment Selection](https://github.com/user-attachments/assets/5a96c9f3-8478-4557-a3a6-2ca71f2ecec3)
 
 **What the user sees:**
 - Progress indicator showing "Deployment" as active (Step 2 of 7)
@@ -64,7 +64,7 @@ The OpenClaw Configuration UI is a 7-step wizard that guides non-technical users
 
 ### Step 3: API Keys Configuration
 
-![API Keys](screenshots/03-api-keys.png)
+![API Keys](https://github.com/user-attachments/assets/45c610e8-cc4d-4891-838b-8bdd75e3676f)
 
 **What the user sees:**
 - Progress indicator showing "API Keys" as active (Step 3 of 7)
@@ -95,7 +95,7 @@ The OpenClaw Configuration UI is a 7-step wizard that guides non-technical users
 
 ### Step 4: Agent Configuration
 
-![Agent Configuration](screenshots/04-agents.png)
+![Agent Configuration](https://github.com/user-attachments/assets/969a5c39-12b4-4e33-b6ed-ba9a72485e1a)
 
 **What the user sees:**
 - Progress indicator showing "Agents" as active (Step 4 of 7)
@@ -129,7 +129,7 @@ The OpenClaw Configuration UI is a 7-step wizard that guides non-technical users
 
 ### Step 5: Communication Channels
 
-![Channels](screenshots/05-channels.png)
+![Channels](https://github.com/user-attachments/assets/107a5202-be42-4a03-afa4-db6a358461c7)
 
 **What the user sees:**
 - Progress indicator showing "Channels" as active (Step 5 of 7)
@@ -157,7 +157,7 @@ The OpenClaw Configuration UI is a 7-step wizard that guides non-technical users
 
 ### Step 6: Review Configuration
 
-![Review](screenshots/06-review.png)
+![Review](https://github.com/user-attachments/assets/9974b5ae-4308-4fec-94cd-8cfb8e3a2733)
 
 **What the user sees:**
 - Progress indicator showing "Review" as active (Step 6 of 7)
@@ -188,7 +188,7 @@ The OpenClaw Configuration UI is a 7-step wizard that guides non-technical users
 
 ### Step 7: Deployment Progress
 
-![Deployment In Progress](screenshots/07-deploying.png)
+![Deployment In Progress](https://github.com/user-attachments/assets/f5dd4249-637e-426c-91e5-3a7d5b8f3483)
 
 **What the user sees:**
 - Progress indicator showing "Deploy" as active (Step 7 of 7)
@@ -202,28 +202,7 @@ The OpenClaw Configuration UI is a 7-step wizard that guides non-technical users
 
 **User action:** Wait for deployment to complete (no action needed)
 
----
-
-### Step 7: Deployment Complete
-
-![Deployment Complete](screenshots/07-complete.png)
-
-**What the user sees:**
-- Progress indicator showing "Deploy" as active (Step 7 of 7)
-- Heading: "🎉 All Done!"
-- Progress bar: 100% filled in green
-- Status message: "Deployment complete"
-- Percentage: "100% complete"
-- Large green success box: "🎊 Success! Your AI assistant is ready!"
-- Next steps numbered list:
-  1. Open your chosen messaging app (WhatsApp, Telegram, etc.)
-  2. Add the bot/assistant using the connection details sent to your email
-  3. Start chatting and let your AI assistant help automate your work!
-- White card showing Deployment ID:
-  - Code block: "20260206230742"
-  - Note: "Save this ID for your records"
-
-**User action:** Follow the next steps to connect to the deployed assistant
+**Note:** The deployment progress screen shows real-time status updates. Once complete (at 100%), the user receives confirmation with deployment details and next steps for connecting to their AI assistant via their chosen communication channels.
 
 ---
 
@@ -334,9 +313,14 @@ The OpenClaw Configuration UI is a 7-step wizard that guides non-technical users
 
 ## Screenshot Information
 
-**Note**: The screenshots above are representative mockups showing the exact layout and content users will see. The actual application renders identically to these mockups when running locally or deployed.
+**Note**: The screenshots above are **actual screenshots** captured from the running application using Playwright browser automation. These show the exact UI that users will see when using the OpenClaw Configuration Wizard.
 
-**To see the live application**:
+**Screenshots captured**: 2026-02-07
+- All 7 workflow steps documented with real screenshots
+- Captured using Playwright MCP with Next.js 15.5.10 + React 19
+- Shows actual gradient backgrounds, typography, and interactive elements
+
+**To see the live application yourself**:
 1. Run `./setup.sh` (or `setup.bat` on Windows)
 2. Start with `./start.sh` (or `start.bat` on Windows)
 3. Open browser to `http://localhost:3000`
