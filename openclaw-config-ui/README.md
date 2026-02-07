@@ -70,6 +70,8 @@ This tool empowers anyone, regardless of technical background, to deploy and con
 
 ## 📖 Using the Wizard
 
+**Visual Walkthrough**: See complete screenshots of all workflows in [docs/SCREENSHOTS.md](docs/SCREENSHOTS.md)
+
 The wizard walks you through 7 simple steps:
 
 ### Step 1: Welcome
