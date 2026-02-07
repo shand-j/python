@@ -1,0 +1,40 @@
+{
+  "description": "Example OpenClaw Configuration",
+  "note": "This is what the wizard generates for you automatically",
+  
+  "deployment": {
+    "type": "docker",
+    "platform": null,
+    "description": "Options: docker, serverless, direct"
+  },
+  
+  "api_keys": {
+    "anthropic_key": "sk-ant-your-key-here",
+    "openai_key": null,
+    "local_model": null,
+    "note": "You only need ONE of these API keys"
+  },
+  
+  "agents": [
+    {
+      "name": "Dorothy's Helper",
+      "model": "anthropic/claude-sonnet-3-5",
+      "description": "Helps automate daily work tasks",
+      "skills": [],
+      "note": "Model options: claude-opus-4, claude-sonnet-3-5, gpt-4-turbo, gpt-4, gpt-3.5-turbo"
+    }
+  ],
+  
+  "channels": [
+    {
+      "type": "whatsapp",
+      "enabled": true,
+      "allowed_users": ["+1234567890"],
+      "note": "Options: whatsapp, telegram, slack, discord"
+    }
+  ],
+  
+  "user_email": "user@example.com",
+  
+  "_wizard_note": "The wizard will guide you through creating this configuration. You don't need to edit this file manually!"
+}

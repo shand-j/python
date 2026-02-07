@@ -4,6 +4,34 @@ This is a monorepo for Python projects and scripts. Each project is organized in
 
 ## Projects
 
+### OpenClaw Configuration UI
+
+A user-friendly web interface for configuring and deploying OpenClaw AI assistants - designed for non-technical users!
+
+**Location:** `openclaw-config-ui/`
+
+**Features:**
+- Simple wizard-based setup process
+- Multiple deployment options (Docker, Cloud, Direct)
+- AI provider integration (Anthropic Claude, OpenAI, Local models)
+- Communication channel configuration (WhatsApp, Telegram, Slack, Discord)
+- Real-time deployment progress tracking
+- Zero technical knowledge required
+- Pulumi-based infrastructure automation
+
+**Quick Start:**
+```bash
+cd openclaw-config-ui
+./setup.sh  # or setup.bat on Windows
+./start.sh  # or start.bat on Windows
+# Open browser to http://localhost:3000
+```
+
+**Documentation:**
+- [README.md](openclaw-config-ui/README.md) - Complete overview
+- [QUICKSTART.md](openclaw-config-ui/QUICKSTART.md) - Get started in 10 minutes
+- [USER_GUIDE.md](openclaw-config-ui/docs/USER_GUIDE.md) - Comprehensive user guide
+
 ### Product Scraper
 
 A comprehensive product data scraping and processing application for Shopify import.
